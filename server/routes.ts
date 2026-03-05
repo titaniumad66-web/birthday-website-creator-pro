@@ -257,6 +257,15 @@ export async function registerRoutes(
       });
     }
   );
+  app.get("/api/admin/users", verifyToken, verifyAdmin, async (_req, res) => {
+    try {
+      const items = await storage.listUsers();
+      return res.json(items);
+    } catch (error) {
+      console.error("Admin Users Error:", error);
+      return res.status(500).json({ message: "Server error" });
+    }
+  });
   // =========================
   // TEMPLATES (PUBLIC LIST)
   // =========================

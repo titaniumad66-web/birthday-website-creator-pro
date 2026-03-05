@@ -39,6 +39,7 @@ export default function AdminDashboard() {
     revenueApproved: number;
     pendingPayments: number;
   } | null>(null);
+  const [users, setUsers] = useState<Array<{ id: string; username: string; email: string; role: string; createdAt?: string }>>([]);
 
   const fetchTemplates = async () => {
     try {
@@ -180,6 +181,20 @@ export default function AdminDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const fetchUsers = async () => {
+    try {
+      const token = getValidAuthToken();
+      if (!token) return;
+      const res = await fetch("/api/admin/users", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return;
+      const data = await res.json();
+      setUsers(Array.isArray(data) ? data : []);
+    } catch {}
+  };
+  useEffect(() => {
+    fetchUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   async function resizeImageIfNeeded(file: File, maxWidth: number) {
     const img = document.createElement("img");
     const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -238,6 +253,9 @@ export default function AdminDashboard() {
         return;
       }
       await fetchImages();
+      try {
+        window.dispatchEvent(new CustomEvent("site-images-updated", { detail: { section: sectionKey } }));
+      } catch {}
     } catch {
       setError("Upload failed. Please try again.");
     } finally {
@@ -674,8 +692,24 @@ export default function AdminDashboard() {
 
         {activeTab === "users" && (
           <div className="rounded-3xl border border-white/50 bg-white/70 p-6 shadow-xl backdrop-blur-md">
-            <h2 className="text-2xl font-serif font-medium mb-2">Users</h2>
-            <p className="text-sm text-muted-foreground">User management is coming soon. Analytics above includes total users.</p>
+            <h2 className="text-2xl font-serif font-medium mb-4">Users</h2>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {users.map((u) => (
+                <div key={u.id} className="rounded-2xl border border-border bg-white p-4 shadow">
+                  <div className="text-sm font-medium">{u.username || u.email || u.id}</div>
+                  <div className="text-xs text-muted-foreground">{u.email}</div>
+                  <div className="mt-2 text-xs uppercase tracking-widest">
+                    Role: <span className="font-semibold">{u.role}</span>
+                  </div>
+                  <div className="mt-1 text-xs text-foreground/60">
+                    {u.createdAt ? new Date(u.createdAt).toLocaleString() : ""}
+                  </div>
+                </div>
+              ))}
+              {users.length === 0 && (
+                <div className="text-sm text-muted-foreground">No users found.</div>
+              )}
+            </div>
           </div>
         )}
       </div>

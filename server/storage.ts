@@ -55,6 +55,7 @@ export interface IStorage {
     revenueApproved: number;
     pendingPayments: number;
   }>;
+  listUsers(): Promise<Array<Pick<User, "id" | "username" | "email" | "role" | "createdAt">>>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -303,6 +304,20 @@ export class DatabaseStorage implements IStorage {
       revenueApproved: Number(revenueRow[0]?.s ?? 0),
       pendingPayments: Number(pendingCount[0]?.c ?? 0),
     };
+  }
+
+  async listUsers(): Promise<Array<Pick<User, "id" | "username" | "email" | "role" | "createdAt">>> {
+    const result = await db
+      .select({
+        id: users.id,
+        username: users.username,
+        email: users.email,
+        role: users.role,
+        createdAt: users.createdAt,
+      })
+      .from(users)
+      .orderBy(desc(users.createdAt));
+    return result as any;
   }
 }
 

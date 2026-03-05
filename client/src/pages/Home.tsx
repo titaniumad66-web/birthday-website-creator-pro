@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ComponentType } from "react";
 import { Link } from "wouter";
+import { getAuthPayload, getValidAuthToken } from "@/lib/queryClient";
 import { motion, useMotionValue, useTransform } from "framer-motion";
 import {
   ArrowRight,
@@ -143,8 +144,17 @@ function useSiteImage(section: string) {
       }
     };
     run();
+    const onUpdated = (e: Event) => {
+      try {
+        const d = (e as CustomEvent).detail;
+        if (!d || d.section !== section) return;
+      } catch {}
+      run();
+    };
+    window.addEventListener("site-images-updated", onUpdated as any);
     return () => {
       mounted = false;
+      window.removeEventListener("site-images-updated", onUpdated as any);
     };
   }, [section]);
   return url;
@@ -153,19 +163,99 @@ function useSiteImage(section: string) {
 function DynamicHeroImage() {
   const url = useSiteImage("hero");
   const src = url || heroBg;
+  const [busy, setBusy] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    const payload = getAuthPayload();
+    setIsAdmin(payload?.role === "admin");
+  }, []);
+  const onPick = async (ev: React.ChangeEvent<HTMLInputElement>) => {
+    const f = ev.target.files?.[0];
+    if (!f) return;
+    ev.currentTarget.value = "";
+    const token = getValidAuthToken();
+    if (!token) return;
+    setBusy(true);
+    try {
+      const res0 = await fetch(`/api/site-images?section=${encodeURIComponent("hero")}`);
+      const list = res0.ok ? await res0.json() : [];
+      const existingId = Array.isArray(list) && list.length ? list[0].id : null;
+      const form = new FormData();
+      form.append("section_name", "hero");
+      form.append("image", f);
+      const url = existingId ? `/api/site-images/${existingId}` : "/api/site-images";
+      const method = existingId ? "PUT" : "POST";
+      const res = await fetch(url, {
+        method,
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+      if (res.ok) {
+        window.dispatchEvent(new CustomEvent("site-images-updated", { detail: { section: "hero" } }));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
-    <div className="rounded-[2rem] border border-purple-200/60 bg-white/70 p-2 shadow-xl backdrop-blur">
+    <div className="relative rounded-[2rem] border border-purple-200/60 bg-white/70 p-2 shadow-xl backdrop-blur">
       <img src={src} alt="Celebration" className="w-full rounded-[1.6rem] object-cover" />
+      {isAdmin && (
+        <label className="absolute top-3 right-3 inline-flex items-center rounded-full border border-border bg-white/90 px-3 py-1 text-xs font-semibold cursor-pointer hover:bg-white">
+          <input type="file" accept="image/*" className="hidden" onChange={onPick} />
+          {busy ? "Uploading..." : "Replace Image"}
+        </label>
+      )}
     </div>
   );
 }
 
 function DynamicSectionImage({ section, alt }: { section: string; alt: string }) {
   const url = useSiteImage(section);
+  const [busy, setBusy] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    const payload = getAuthPayload();
+    setIsAdmin(payload?.role === "admin");
+  }, []);
+  const onPick = async (ev: React.ChangeEvent<HTMLInputElement>) => {
+    const f = ev.target.files?.[0];
+    if (!f) return;
+    ev.currentTarget.value = "";
+    const token = getValidAuthToken();
+    if (!token) return;
+    setBusy(true);
+    try {
+      const res0 = await fetch(`/api/site-images?section=${encodeURIComponent(section)}`);
+      const list = res0.ok ? await res0.json() : [];
+      const existingId = Array.isArray(list) && list.length ? list[0].id : null;
+      const form = new FormData();
+      form.append("section_name", section);
+      form.append("image", f);
+      const url = existingId ? `/api/site-images/${existingId}` : "/api/site-images";
+      const method = existingId ? "PUT" : "POST";
+      const res = await fetch(url, {
+        method,
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+      if (res.ok) {
+        window.dispatchEvent(new CustomEvent("site-images-updated", { detail: { section } }));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
   if (!url) return null;
   return (
-    <div className="rounded-[2rem] border border-purple-200/60 bg-white/70 p-2 shadow-xl backdrop-blur">
+    <div className="relative rounded-[2rem] border border-purple-200/60 bg-white/70 p-2 shadow-xl backdrop-blur">
       <img src={url} alt={alt} className="w-full rounded-[1.6rem] object-cover" />
+      {isAdmin && (
+        <label className="absolute top-3 right-3 inline-flex items-center rounded-full border border-border bg-white/90 px-3 py-1 text-xs font-semibold cursor-pointer hover:bg-white">
+          <input type="file" accept="image/*" className="hidden" onChange={onPick} />
+          {busy ? "Uploading..." : "Replace Image"}
+        </label>
+      )}
     </div>
   );
 }
@@ -247,6 +337,9 @@ function TemplateScrollerSection({ items }: { items: { title: string; image: str
             Explore cinematic themes
           </h2>
         </motion.div>
+        <div className="mt-6">
+          <DynamicSectionImage section="templates" alt="Templates Preview" />
+        </div>
         <div className="mt-12 overflow-x-auto no-scrollbar">
           <div className="flex snap-x snap-mandatory gap-6">
             {items.map((item, i) => (
@@ -352,6 +445,42 @@ function SocialTeasersSection() {
 
 function AISection() {
   const celebrationUrl = useSiteImage("celebration");
+  const aiMagicUrl = useSiteImage("ai-magic");
+  const [busy, setBusy] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    const payload = getAuthPayload();
+    setIsAdmin(payload?.role === "admin");
+  }, []);
+  const onPick = async (ev: React.ChangeEvent<HTMLInputElement>) => {
+    const f = ev.target.files?.[0];
+    if (!f) return;
+    ev.currentTarget.value = "";
+    const token = getValidAuthToken();
+    if (!token) return;
+    setBusy(true);
+    try {
+      const section = aiMagicUrl ? "ai-magic" : "celebration";
+      const res0 = await fetch(`/api/site-images?section=${encodeURIComponent(section)}`);
+      const list = res0.ok ? await res0.json() : [];
+      const existingId = Array.isArray(list) && list.length ? list[0].id : null;
+      const form = new FormData();
+      form.append("section_name", section);
+      form.append("image", f);
+      const url = existingId ? `/api/site-images/${existingId}` : "/api/site-images";
+      const method = existingId ? "PUT" : "POST";
+      const res = await fetch(url, {
+        method,
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+      if (res.ok) {
+        window.dispatchEvent(new CustomEvent("site-images-updated", { detail: { section } }));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <section className="min-h-screen flex items-center bg-gradient-to-b from-white via-[#faf7ff] to-[#fff5fa]">
       <div className="container mx-auto px-6 max-w-7xl py-24">
@@ -389,13 +518,15 @@ function AISection() {
             transition={{ duration: 0.9 }}
             className="rounded-[2.5rem] border border-purple-200/60 bg-white/70 p-4 sm:p-6 shadow-xl backdrop-blur"
           >
-            {celebrationUrl ? (
-              <div className="rounded-[2rem] border border-purple-200/60 bg-white/70 p-2 shadow-xl backdrop-blur">
-                <img
-                  src={celebrationUrl}
-                  alt="Celebration"
-                  className="w-full rounded-[1.6rem] object-cover"
-                />
+            {(aiMagicUrl || celebrationUrl) ? (
+              <div className="relative rounded-[2rem] border border-purple-200/60 bg-white/70 p-2 shadow-xl backdrop-blur">
+                <img src={aiMagicUrl ?? celebrationUrl ?? undefined} alt="AI Magic" className="w-full rounded-[1.6rem] object-cover" />
+                {isAdmin && (
+                  <label className="absolute top-3 right-3 inline-flex items-center rounded-full border border-border bg-white/90 px-3 py-1 text-xs font-semibold cursor-pointer hover:bg-white">
+                    <input type="file" accept="image/*" className="hidden" onChange={onPick} />
+                    {busy ? "Uploading..." : "Replace Image"}
+                  </label>
+                )}
               </div>
             ) : (
               <div className="rounded-3xl border border-purple-200/60 bg-white p-5 shadow-lg">
@@ -650,6 +781,9 @@ function BuilderFlowSection() {
             From idea to surprise in minutes
           </h2>
         </motion.div>
+        <div className="mt-6">
+          <DynamicSectionImage section="mockups" alt="Website Mockups" />
+        </div>
         <div className="mt-12 grid gap-6 md:grid-cols-3">
           {steps.map((s, i) => (
             <motion.div
