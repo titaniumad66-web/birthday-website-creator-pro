@@ -6,7 +6,7 @@ import {
   Music, Heart, Gift, Crown, Smile, Cloud, Download, Lock, MapPin, Play, Pause, Calendar
 } from "lucide-react";
 import { useLocation } from "wouter";
-import { getValidAuthToken } from "@/lib/queryClient";
+import { getValidAuthToken, getAuthPayload } from "@/lib/queryClient";
 
 // Components
 import { Input } from "@/components/ui/input";
@@ -149,6 +149,8 @@ export default function CreateWebsite() {
     const run = async () => {
       const token = getValidAuthToken();
       if (!token) return;
+      const payload = getAuthPayload();
+      if (payload?.role === "admin") return; // Admins skip monetization redirect
       try {
         const res = await fetch("/api/monetization/check", {
           headers: { Authorization: `Bearer ${token}` },

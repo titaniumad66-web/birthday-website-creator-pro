@@ -212,11 +212,17 @@ export async function registerRoutes(
     try {
       const { title, theme, content } = req.body;
 
-      const websitesCount = await storage.getUserWebsiteCount(req.user.id);
-      if (websitesCount >= 1) {
-        const approvedCount = await storage.getApprovedPurchaseCount(req.user.id, "website_creation");
-        if (websitesCount - 1 >= approvedCount) {
-          return res.status(402).json({ message: "Payment required" });
+      // Admins bypass monetization checks
+      if (req.user?.role !== "admin") {
+        const websitesCount = await storage.getUserWebsiteCount(req.user.id);
+        if (websitesCount >= 1) {
+          const approvedCount = await storage.getApprovedPurchaseCount(
+            req.user.id,
+            "website_creation",
+          );
+          if (websitesCount - 1 >= approvedCount) {
+            return res.status(402).json({ message: "Payment required" });
+          }
         }
       }
 
@@ -227,8 +233,11 @@ export async function registerRoutes(
         content,
       });
 
-      if (websitesCount === 0) {
-        await storage.setUserFreeUsed(req.user.id);
+      if (req.user?.role !== "admin") {
+        const websitesCount = await storage.getUserWebsiteCount(req.user.id);
+        if (websitesCount === 1) {
+          await storage.setUserFreeUsed(req.user.id);
+        }
       }
 
       return res.status(201).json(website);
@@ -616,6 +625,9 @@ app.get("/api/websites/:id", async (req, res) => {
   // =========================
   app.get("/api/monetization/check", verifyToken, async (req: any, res) => {
     try {
+      if (req.user?.role === "admin") {
+        return res.json({ allowed: true, reason: "admin" });
+      }
       const count = await storage.getUserWebsiteCount(req.user.id);
       if (count === 0) {
         return res.json({ allowed: true, reason: "free" });
