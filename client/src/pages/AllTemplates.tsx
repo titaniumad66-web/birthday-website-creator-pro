@@ -68,8 +68,11 @@ export default function AllTemplates() {
                     <span className="text-sm font-medium">Download</span>
                   </a>
                   <p className="text-white font-medium text-lg">
-                    {template.title || `Template ${index + 1}`}
+                    {(template.title || `Template ${index + 1}`).split("::")[0].trim()}
                   </p>
+                  <div className="text-xs text-white/80">
+                    {((template.title || "").split("::")[1] || "").trim()}
+                  </div>
                 </div>
               </div>
             ))}

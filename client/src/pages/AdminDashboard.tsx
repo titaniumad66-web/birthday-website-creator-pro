@@ -40,6 +40,8 @@ export default function AdminDashboard() {
     pendingPayments: number;
   } | null>(null);
   const [users, setUsers] = useState<Array<{ id: string; username: string; email: string; role: string; createdAt?: string }>>([]);
+  const [templateCategory, setTemplateCategory] = useState<string>("romantic");
+  const [showTemplateUpload, setShowTemplateUpload] = useState<boolean>(false);
 
   const fetchTemplates = async () => {
     try {
@@ -363,6 +365,41 @@ export default function AdminDashboard() {
       setError("Delete failed. Please try again.");
     }
   };
+  const handleSubmitTemplate = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!file || isSubmitting) return;
+    const token = getValidAuthToken();
+    if (!token) {
+      setError("You must be logged in as admin.");
+      return;
+    }
+    setIsSubmitting(true);
+    setError(null);
+    const formData = new FormData();
+    const mergedTitle = `${title.trim()} :: ${templateCategory}`;
+    formData.append("name", title.trim());
+    formData.append("title", mergedTitle);
+    formData.append("image", file);
+    try {
+      const res = await fetch("/api/templates", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (!res.ok) {
+        setError("Upload failed. Please try again.");
+        return;
+      }
+      setTitle("");
+      setFile(null);
+      setShowTemplateUpload(false);
+      await fetchTemplates();
+    } catch {
+      setError("Upload failed. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background px-6 py-12">
@@ -651,6 +688,59 @@ export default function AdminDashboard() {
 
         {activeTab === "templates" && (
         <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xl font-serif font-medium">Templates Manager</h3>
+            <button
+              type="button"
+              onClick={() => setShowTemplateUpload((v) => !v)}
+              className="rounded-full bg-black text-white px-4 py-2 text-xs font-semibold shadow-sm hover:bg-black/90"
+            >
+              Upload Template
+            </button>
+          </div>
+          {showTemplateUpload && (
+            <form onSubmit={handleSubmitTemplate} className="grid gap-4 md:grid-cols-[1fr_1fr_1fr_auto] items-end rounded-2xl border border-border bg-white/70 p-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-foreground">Template Name</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  className="h-11 rounded-xl border border-border bg-white/70 px-4 text-sm shadow-sm"
+                  placeholder="Romantic teaser"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-foreground">Category</label>
+                <select
+                  value={templateCategory}
+                  onChange={(e) => setTemplateCategory(e.target.value)}
+                  className="h-11 rounded-xl border border-border bg-white/70 px-4 text-sm shadow-sm"
+                >
+                  {["romantic","emotional","funny","royal","minimal","pastel"].map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-foreground">Upload Image</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => setFile(event.target.files ? event.target.files[0] : null)}
+                  className="h-11 rounded-xl border border-border bg-white/70 px-4 text-sm shadow-sm"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isSubmitting || !file || !title}
+                className="h-11 px-6 rounded-xl bg-black text-white text-sm font-medium shadow-lg hover:scale-105 transition-transform disabled:opacity-60"
+              >
+                {isSubmitting ? "Uploading..." : "Upload"}
+              </button>
+              {error && <div className="md:col-span-4 text-sm text-red-600">{error}</div>}
+            </form>
+          )}
           <h3 className="text-xl font-serif font-medium">Existing Templates</h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-6 md:gap-8">
           {templates.map((template) => (
@@ -674,8 +764,11 @@ export default function AdminDashboard() {
                   <span className="text-sm font-medium">Download</span>
                 </a>
                 <p className="text-white font-medium text-lg">
-                  {template.title || "Template"}
+                  {(template.title || "Template").split("::")[0].trim()}
                 </p>
+                <div className="text-xs text-white/80">
+                  {((template.title || "").split("::")[1] || "").trim()}
+                </div>
                 <button
                   type="button"
                   onClick={() => handleDelete(template.id)}
