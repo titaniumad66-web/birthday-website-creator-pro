@@ -3,10 +3,20 @@ import { motion, AnimatePresence } from "framer-motion";
 import { 
   Image as ImageIcon, Type, Sparkles, Wand2, Upload, 
   ChevronRight, ChevronLeft, CheckCircle2, Loader2, PlayCircle, Eye,
-  Music, Heart, Gift, Crown, Smile, Cloud, Download, Lock, MapPin, Play, Pause, Calendar
+  Music, Heart, Gift, Crown, Smile, Cloud, Download, Lock, MapPin, Play, Calendar, Star
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { getValidAuthToken, getAuthPayload } from "@/lib/queryClient";
+import {
+  memoryTemplates,
+  musicTrackOptions,
+  relationshipToKey,
+  resolveMusicSrcFromContent,
+  letterTemplates,
+  getLetterPlaceholder,
+  type MusicTrackId,
+  type ExperienceType,
+} from "@/lib/surpriseConfig";
 
 // Components
 import { Input } from "@/components/ui/input";
@@ -19,13 +29,32 @@ import mockupImg from "@/assets/images/website-mockup.png";
 import gift1 from "@/assets/images/gift-1.png";
 import gift2 from "@/assets/images/gift-2.png";
 
-type Step = "welcome" | "recipient" | "theme" | "memories" | "message" | "music" | "generating" | "preview";
+type Step =
+  | "welcome"
+  | "experience"
+  | "recipient"
+  | "letterType"
+  | "letterCompose"
+  | "theme"
+  | "memories"
+  | "message"
+  | "delivery"
+  | "music"
+  | "generating"
+  | "preview";
 
 interface Memory {
   id: string;
   image: string;
   caption: string;
   date: string;
+  /** Suggested chapter title from relationship templates */
+  templateTitle?: string;
+  /** User-editable chapter title; empty string uses templateTitle when published */
+  title?: string;
+  /** Only one memory should be featured; used as hero image on published page */
+  isFeatured?: boolean;
+  body?: string;
 }
 
 function fileToDataUrl(file: File): Promise<string> {
@@ -124,7 +153,8 @@ function getThemePalette(themeId: string) {
 export default function CreateWebsite() {
   const [step, setStep] = useState<Step>("welcome");
   const [, setLocation] = useLocation();
-  
+  const [experienceType, setExperienceType] = useState<ExperienceType>("website");
+
   // Form State
   const [name, setName] = useState("");
   const [relationship, setRelationship] = useState("");
@@ -132,8 +162,10 @@ export default function CreateWebsite() {
   const [theme, setTheme] = useState("romantic");
   const [memories, setMemories] = useState<Memory[]>([]);
   const [message, setMessage] = useState("");
-  const [music, setMusic] = useState("piano");
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [musicTrack, setMusicTrack] = useState<MusicTrackId>("soft_piano");
+  const [scheduleSurprise, setScheduleSurprise] = useState(false);
+  const [unlockDate, setUnlockDate] = useState("");
+  const [unlockTime, setUnlockTime] = useState("09:00");
   const [progress, setProgress] = useState(0);
   const [createdWebsiteId, setCreatedWebsiteId] = useState<string | null>(null);
   const [websiteLinkName, setWebsiteLinkName] = useState("");
@@ -145,9 +177,27 @@ export default function CreateWebsite() {
   );
   const [isPublishing, setIsPublishing] = useState(false);
 
+  const [letterType, setLetterType] = useState("");
+  const [letterTitle, setLetterTitle] = useState("");
+  const [letterBody, setLetterBody] = useState("");
+  const [letterImage, setLetterImage] = useState<string | null>(null);
+  const [letterBodyTouched, setLetterBodyTouched] = useState(false);
+  const letterImageInputRef = useRef<HTMLInputElement>(null);
+
+  const [editingSiteId, setEditingSiteId] = useState<string | null>(null);
+  const [editLoading, setEditLoading] = useState(() =>
+    typeof window !== "undefined"
+      ? Boolean(new URLSearchParams(window.location.search).get("edit"))
+      : false,
+  );
+  const [editLoadError, setEditLoadError] = useState<string | null>(null);
+
   // Monetization: defer checks to the moment user generates the website for better UX
 
   useEffect(() => {
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("edit")) {
+      return;
+    }
     try {
       const stored = sessionStorage.getItem("ai_preview_payload");
       if (stored) {
@@ -162,13 +212,21 @@ export default function CreateWebsite() {
             image: String(m.image || ""),
             caption: String(m.caption || ""),
             date: String(m.date || new Date().toISOString().split("T")[0]),
+            templateTitle:
+              typeof m.templateTitle === "string" ? m.templateTitle : undefined,
+            title: typeof m.title === "string" ? m.title : undefined,
+            isFeatured: Boolean(m.isFeatured),
+            body: typeof m.body === "string" ? m.body : undefined,
           }));
           setMemories(ms);
         }
         if (typeof data?.message === "string") setMessage(data.message);
         if (typeof data?.music === "string") {
           if (data.music.startsWith("data:")) setUploadedMusicBase64(data.music);
-          else setMusic(data.music);
+          else setMusicTrack(mapLegacyMusicId(data.music));
+        }
+        if (typeof data?.musicTrack === "string") {
+          setMusicTrack(mapLegacyMusicId(data.musicTrack));
         }
         setStep("message");
       }
@@ -176,17 +234,199 @@ export default function CreateWebsite() {
   }, []);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const editId = params.get("edit");
+    if (!editId) {
+      setEditingSiteId(null);
+      setEditLoading(false);
+      setEditLoadError(null);
+      return;
+    }
+
+    const token = getValidAuthToken();
+    if (!token) {
+      setLocation("/login");
+      return;
+    }
+
+    let cancelled = false;
+    setEditLoading(true);
+    setEditLoadError(null);
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/websites/${editId}`);
+        if (!res.ok) throw new Error("notfound");
+        const row = (await res.json()) as {
+          id: string;
+          title: string;
+          theme: string;
+          content: string;
+          userId?: string;
+        };
+        if (cancelled) return;
+
+        const me = getAuthPayload()?.id;
+        if (row.userId && me && row.userId !== me) {
+          setEditLoadError("You can only edit your own creations.");
+          setEditLoading(false);
+          return;
+        }
+
+        let parsed: Record<string, unknown>;
+        try {
+          parsed = JSON.parse(row.content) as Record<string, unknown>;
+        } catch {
+          setEditLoadError("Could not read this creation.");
+          setEditLoading(false);
+          return;
+        }
+
+        setEditingSiteId(editId);
+        setTheme(typeof row.theme === "string" ? row.theme : "romantic");
+        setCreatedWebsiteId(editId);
+
+        if (parsed.type === "letter") {
+          setExperienceType("letter");
+          setName(typeof parsed.name === "string" ? parsed.name : "");
+          setRelationship(typeof parsed.relationship === "string" ? parsed.relationship : "");
+          setLetterType(typeof parsed.letterType === "string" ? parsed.letterType : "");
+          setLetterTitle(typeof parsed.title === "string" ? parsed.title : "");
+          setLetterBody(typeof parsed.content === "string" ? parsed.content : "");
+          setLetterImage(typeof parsed.image === "string" ? parsed.image : null);
+          setLetterBodyTouched(true);
+          setConfessionMode(false);
+          if (typeof parsed.musicBase64 === "string" && parsed.musicBase64) {
+            setUploadedMusicBase64(parsed.musicBase64);
+          } else if (
+            typeof parsed.music === "string" &&
+            parsed.music.startsWith("data:")
+          ) {
+            setUploadedMusicBase64(parsed.music);
+          } else {
+            setUploadedMusicBase64(null);
+            const tr = parsed.musicTrack ?? parsed.music;
+            if (typeof tr === "string") setMusicTrack(mapLegacyMusicId(tr));
+          }
+          setScheduleSurprise(false);
+          setUnlockDate("");
+          setUnlockTime("09:00");
+          setMemories([]);
+          setMessage("");
+          setStep("preview");
+        } else {
+          setExperienceType("website");
+          setName(typeof parsed.name === "string" ? parsed.name : "");
+          setRelationship(typeof parsed.relationship === "string" ? parsed.relationship : "");
+          setConfessionMode(Boolean(parsed.confessionMode));
+          if (Array.isArray(parsed.memories)) {
+            const ms: Memory[] = (parsed.memories as any[]).map((m) => ({
+              id: Math.random().toString(36).slice(2),
+              image: String(m.image || ""),
+              caption: String(m.caption || ""),
+              date: String(m.date || new Date().toISOString().split("T")[0]),
+              templateTitle:
+                typeof m.templateTitle === "string" ? m.templateTitle : undefined,
+              title: typeof m.title === "string" ? m.title : undefined,
+              isFeatured: Boolean(m.isFeatured),
+              body: typeof m.body === "string" ? m.body : undefined,
+            }));
+            setMemories(ms);
+          } else {
+            setMemories([]);
+          }
+          setMessage(typeof parsed.message === "string" ? parsed.message : "");
+          if (typeof parsed.musicBase64 === "string" && parsed.musicBase64) {
+            setUploadedMusicBase64(parsed.musicBase64);
+          } else if (
+            typeof parsed.music === "string" &&
+            parsed.music.startsWith("data:")
+          ) {
+            setUploadedMusicBase64(parsed.music);
+          } else {
+            setUploadedMusicBase64(null);
+            const tr = parsed.musicTrack ?? parsed.music;
+            if (typeof tr === "string") setMusicTrack(mapLegacyMusicId(tr));
+          }
+          setScheduleSurprise(Boolean(parsed.scheduleSurprise));
+          if (parsed.scheduleSurprise && typeof parsed.unlockAt === "string") {
+            const d = new Date(parsed.unlockAt);
+            if (!Number.isNaN(d.getTime())) {
+              const y = d.getFullYear();
+              const mo = String(d.getMonth() + 1).padStart(2, "0");
+              const da = String(d.getDate()).padStart(2, "0");
+              setUnlockDate(`${y}-${mo}-${da}`);
+              const hh = String(d.getHours()).padStart(2, "0");
+              const mi = String(d.getMinutes()).padStart(2, "0");
+              setUnlockTime(`${hh}:${mi}`);
+            }
+          } else {
+            setUnlockDate("");
+            setUnlockTime("09:00");
+          }
+          setLetterType("");
+          setLetterTitle("");
+          setLetterBody("");
+          setLetterImage(null);
+          setLetterBodyTouched(false);
+          setStep("preview");
+        }
+      } catch {
+        if (!cancelled) setEditLoadError("Could not load this creation.");
+      } finally {
+        if (!cancelled) setEditLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [setLocation]);
+
+  useEffect(() => {
     const context = {
+      experienceType,
       name,
       relationship,
       theme,
       confessionMode,
       memoriesCount: memories.length,
       message,
+      letterType,
+      letterTitle,
+      letterBodyPreviewLen: letterBody.length,
     };
     sessionStorage.setItem("aura_ai_context", JSON.stringify(context));
     window.dispatchEvent(new Event("aura-ai-context"));
-  }, [name, relationship, theme, confessionMode, memories.length, message]);
+  }, [
+    experienceType,
+    name,
+    relationship,
+    theme,
+    confessionMode,
+    memories.length,
+    message,
+    letterType,
+    letterTitle,
+    letterBody.length,
+  ]);
+
+  useEffect(() => {
+    if (step !== "letterType" || !relationship) return;
+    const key = relationshipToKey(relationship);
+    const options = letterTemplates[key];
+    if (!options?.length) return;
+    if (!letterType || !options.includes(letterType)) {
+      setLetterType(options[0]);
+    }
+  }, [step, relationship, letterType]);
+
+  useEffect(() => {
+    if (experienceType !== "letter") return;
+    if (step !== "letterCompose") return;
+    if (letterBodyTouched) return;
+    setLetterBody(getLetterPlaceholder(relationship, letterType, name));
+  }, [experienceType, step, relationship, letterType, name, letterBodyTouched]);
 
   const themes = [
     { id: "romantic", name: "Romantic", icon: Heart, desc: "Deep reds, elegant serifs, soft fades", color: "bg-red-50 border-red-200 text-red-700" },
@@ -197,12 +437,61 @@ export default function CreateWebsite() {
     { id: "pastel", name: "Soft Pastel", icon: Sparkles, desc: "Dreamy gradients, bubbly shapes, soft glow", color: "bg-pink-50 border-pink-200 text-pink-700" },
   ];
 
-  const tracks = [
-    { id: "piano", name: "Soft Piano Melody", desc: "Emotional & cinematic" },
-    { id: "lofi", name: "Lofi Chill Vibes", desc: "Relaxed & modern" },
-    { id: "acoustic", name: "Acoustic Sunset", desc: "Warm & intimate" },
-    { id: "upbeat", name: "Upbeat Pop", desc: "Happy & energetic" },
-  ];
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  function mapLegacyMusicId(raw: string): MusicTrackId {
+    const legacy: Record<string, MusicTrackId> = {
+      piano: "soft_piano",
+      acoustic: "romantic_melody",
+      upbeat: "birthday_tune",
+      lofi: "soft_piano",
+      none: "none",
+    };
+    if (musicTrackOptions.some((o) => o.id === raw)) return raw as MusicTrackId;
+    return legacy[raw] ?? "soft_piano";
+  }
+
+  function buildWebsitePayload() {
+    const unlockAtIso =
+      scheduleSurprise && unlockDate
+        ? new Date(`${unlockDate}T${unlockTime || "09:00"}`).toISOString()
+        : null;
+    const effectiveMusic = uploadedMusicBase64 ?? (musicTrack === "none" ? "" : musicTrack);
+    return {
+      experienceType: "website" as const,
+      name,
+      relationship,
+      confessionMode,
+      memories,
+      message,
+      theme,
+      music: effectiveMusic,
+      musicTrack: uploadedMusicBase64 ? undefined : musicTrack,
+      scheduleSurprise: Boolean(scheduleSurprise && unlockAtIso),
+      unlockAt: scheduleSurprise && unlockAtIso ? unlockAtIso : null,
+      earlyUnlocked: false,
+    };
+  }
+
+  function buildLetterPayload() {
+    const effectiveMusic = uploadedMusicBase64 ?? (musicTrack === "none" ? "" : musicTrack);
+    return {
+      type: "letter" as const,
+      experienceType: "letter" as const,
+      name,
+      relationship,
+      letterType,
+      title: letterTitle.trim(),
+      content: letterBody,
+      image: letterImage || undefined,
+      theme,
+      music: effectiveMusic,
+      musicTrack: uploadedMusicBase64 ? undefined : musicTrack,
+      scheduleSurprise: false,
+      unlockAt: null,
+      earlyUnlocked: false,
+    };
+  }
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const input = e.currentTarget;
@@ -222,6 +511,7 @@ export default function CreateWebsite() {
             image: dataUrl,
             caption: "",
             date: new Date().toISOString().split("T")[0],
+            isFeatured: false,
           },
         ]);
       }
@@ -229,6 +519,20 @@ export default function CreateWebsite() {
       alert("Failed to process one of the images. Please try again.");
     } finally {
       // allow selecting the same file again
+      input.value = "";
+    }
+  };
+
+  const handleLetterImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setLetterImage(dataUrl);
+    } catch {
+      alert("Failed to process the image. Please try again.");
+    } finally {
       input.value = "";
     }
   };
@@ -249,7 +553,40 @@ export default function CreateWebsite() {
     }
   };
   function updateMemory(id: string, field: keyof Memory, value: string) {
-    setMemories(prev => prev.map(m => m.id === id ? { ...m, [field]: value } : m));
+    setMemories((prev) =>
+      prev.map((m) => {
+        if (m.id !== id) return m;
+        const next: Memory = { ...m, [field]: value };
+        if (field === "image" && !value.trim()) {
+          next.isFeatured = false;
+        }
+        return next;
+      }),
+    );
+  }
+
+  function setFeaturedMemory(id: string) {
+    setMemories((prev) =>
+      prev.map((m) => ({
+        ...m,
+        isFeatured: m.id === id && Boolean(m.image?.trim()),
+      })),
+    );
+  }
+
+  function addSuggestedMemory(templateTitle: string) {
+    setMemories((prev) => [
+      ...prev,
+      {
+        id: Math.random().toString(36).slice(2),
+        templateTitle,
+        image: "",
+        caption: "",
+        body: "",
+        date: new Date().toISOString().split("T")[0],
+        isFeatured: false,
+      },
+    ]);
   }
 
   const enhanceMessage = () => {
@@ -301,9 +638,13 @@ export default function CreateWebsite() {
       caption: escapeHtml(memory.caption || ""),
       date: escapeHtml(memory.date || ""),
     }));
-    const musicSrc =
-      uploadedMusicBase64 ??
-      (music ? `${window.location.origin}/music/${music}.mp3` : "");
+    const resolvedAudio =
+      uploadedMusicBase64 ?? resolveMusicSrcFromContent({ music: musicTrack, musicTrack });
+    const musicSrc = resolvedAudio
+      ? resolvedAudio.startsWith("data:")
+        ? resolvedAudio
+        : `${window.location.origin}${resolvedAudio}`
+      : "";
 
     const memoryCards = safeMemories
       .map(
@@ -398,19 +739,19 @@ export default function CreateWebsite() {
 
   const handleOpenPreview = () => {
     if (createdWebsiteId) {
-      window.open(`/w/${createdWebsiteId}`, "_blank", "noopener,noreferrer");
+      window.open(
+        experienceType === "letter"
+          ? `/letter/${createdWebsiteId}`
+          : `/w/${createdWebsiteId}`,
+        "_blank",
+        "noopener,noreferrer"
+      );
       return;
     }
 
-    const d = encodePreviewPayload({
-      name,
-      relationship,
-      confessionMode,
-      message,
-      memories,
-      theme,
-      music: uploadedMusicBase64 ?? music,
-    });
+    const payload =
+      experienceType === "letter" ? buildLetterPayload() : buildWebsitePayload();
+    const d = encodePreviewPayload(payload);
     window.open(`/preview?d=${encodeURIComponent(d)}`, "_blank", "noopener,noreferrer");
   };
 
@@ -425,39 +766,57 @@ export default function CreateWebsite() {
       setLocation("/login");
       return;
     }
-    const effectiveMusic = uploadedMusicBase64 ?? music;
-
     try {
-      const res = await fetch("/api/websites", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          title: websiteLinkName.trim()
+      const publishTitle =
+        experienceType === "letter"
+          ? websiteLinkName.trim()
+            ? `${websiteLinkName.trim()} — ${name}'s Letter`
+            : `${name}'s Letter`
+          : websiteLinkName.trim()
             ? `${websiteLinkName.trim()} — ${name}'s Birthday Website`
-            : `${name}'s Birthday Website`,
-          theme,
-          content: JSON.stringify({
-            name,
-            relationship,
-            confessionMode,
-            memories,
-            message,
-            theme,
-            music: effectiveMusic,
-          }),
-        }),
-      });
+            : `${name}'s Birthday Website`;
+      const payloadJson = JSON.stringify(
+        experienceType === "letter" ? buildLetterPayload() : buildWebsitePayload()
+      );
+
+      const res = editingSiteId
+        ? await fetch(`/api/websites/${editingSiteId}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              title: publishTitle,
+              theme,
+              content: payloadJson,
+            }),
+          })
+        : await fetch("/api/websites", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              title: publishTitle,
+              theme,
+              content: payloadJson,
+            }),
+          });
 
       if (!res.ok) {
         throw new Error("Failed to publish website");
       }
 
       const data = await res.json();
-      setCreatedWebsiteId(data.id);
-      setLocation(`/w/${data.id}?published=1`);
+      const outId = editingSiteId ?? data.id;
+      setCreatedWebsiteId(outId);
+      setLocation(
+        experienceType === "letter"
+          ? `/letter/${outId}?published=1`
+          : `/w/${outId}?published=1`
+      );
     } catch (err) {
       setPublishError(
         "Publishing failed. Please check your connection and try again."
@@ -467,64 +826,85 @@ export default function CreateWebsite() {
     }
   };
 
- const handleGenerate = async () => {
-  const token = getValidAuthToken();
-  if (!token) {
-    setLocation("/login");
-    return;
-  }
-
-  setStep("generating");
-  setProgress(0);
-
-  const interval = setInterval(() => {
-    setProgress((prev) => {
-      if (prev >= 100) {
-        clearInterval(interval);
-        return 100;
-      }
-      return prev + 2;
-    });
-  }, 100);
-
-  try {
-    const res = await fetch("/api/websites", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        title: `${name}'s Birthday Website`,
-        theme,
-        content: JSON.stringify({
-          name,
-          relationship,
-          confessionMode,
-          memories,
-          message,
-          music: uploadedMusicBase64 ?? music,
-        }),
-      }),
-    });
-
-    if (!res.ok) {
-      throw new Error("Failed to create website");
+  const finalizeExperience = async () => {
+    const token = getValidAuthToken();
+    if (!token) {
+      setLocation("/login");
+      return;
     }
 
-    const data = await res.json();
-    setCreatedWebsiteId(data.id);
+    if (experienceType === "letter" && !letterBody.trim()) {
+      alert("Write a few lines for your letter before continuing.");
+      return;
+    }
 
-    setTimeout(() => {
-      setStep("preview");
-    }, 500);
-  } catch (error) {
-    alert("Something went wrong while creating the website.");
-    clearInterval(interval);
+    setStep("generating");
     setProgress(0);
-    setStep("music");
-  }
-};
+
+    const interval = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          return 100;
+        }
+        return prev + 2;
+      });
+    }, 100);
+
+    const payload =
+      experienceType === "letter" ? buildLetterPayload() : buildWebsitePayload();
+    const defaultTitle =
+      experienceType === "letter" ? `${name}'s Letter` : `${name}'s Birthday Website`;
+    const payloadJson = JSON.stringify(payload);
+
+    try {
+      const res = editingSiteId
+        ? await fetch(`/api/websites/${editingSiteId}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              title: defaultTitle,
+              theme,
+              content: payloadJson,
+            }),
+          })
+        : await fetch("/api/websites", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              title: defaultTitle,
+              theme,
+              content: payloadJson,
+            }),
+          });
+
+      if (!res.ok) {
+        throw new Error("Failed to create website");
+      }
+
+      const data = await res.json();
+      setCreatedWebsiteId(editingSiteId ?? data.id);
+
+      setTimeout(() => {
+        setStep("preview");
+      }, 500);
+    } catch (error) {
+      alert(
+        experienceType === "letter"
+          ? "Something went wrong while creating your letter."
+          : "Something went wrong while creating the website."
+      );
+      clearInterval(interval);
+      setProgress(0);
+      setStep(experienceType === "letter" ? "theme" : "music");
+    }
+  };
 
   const nextStep = (next: Step) => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -532,7 +912,10 @@ export default function CreateWebsite() {
   };
 
   const renderProgress = () => {
-    const steps: Step[] = ["recipient", "theme", "memories", "message", "music"];
+    const steps: Step[] =
+      experienceType === "letter"
+        ? ["recipient", "letterType", "letterCompose", "theme"]
+        : ["recipient", "theme", "memories", "message", "delivery", "music"];
     const currentIndex = steps.indexOf(step);
     if (currentIndex === -1) return null;
 
@@ -554,11 +937,48 @@ export default function CreateWebsite() {
     );
   };
 
+  if (editLoadError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 py-20">
+        <div className="max-w-md rounded-2xl border border-red-200/80 bg-red-50/90 px-6 py-8 text-center text-sm text-red-800">
+          {editLoadError}
+          <div className="mt-6">
+            <button
+              type="button"
+              onClick={() => setLocation("/dashboard")}
+              className="rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground"
+            >
+              Back to dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (editLoading) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-gradient-to-b from-[#FFF7FA] to-[#FFE4EC]/30 px-6">
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        <p className="text-sm font-medium text-muted-foreground">Loading your creation…</p>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background pt-8 pb-24 font-sans">
       <div className="container mx-auto px-4 max-w-5xl">
-        
-        {step !== "welcome" && step !== "generating" && step !== "preview" && renderProgress()}
+        {editingSiteId ? (
+          <div className="mb-6 rounded-2xl border border-[#FFD6E7]/80 bg-[#FFE4EC]/40 px-4 py-3 text-center text-sm text-[#1A1A1A]/70">
+            You&apos;re editing an existing surprise. Saving publishes updates to the same link.
+          </div>
+        ) : null}
+
+        {step !== "welcome" &&
+          step !== "experience" &&
+          step !== "generating" &&
+          step !== "preview" &&
+          renderProgress()}
 
         <AnimatePresence mode="wait">
           {/* WELCOME ONBOARDING */}
@@ -597,11 +1017,76 @@ export default function CreateWebsite() {
 
               <button
                 type="button"
-                onClick={() => nextStep("recipient")}
-                className="bg-foreground text-background px-10 py-4 rounded-full font-medium text-lg hover:bg-foreground/90 transition-all flex items-center gap-2 mx-auto shadow-xl hover:-translate-y-1"
+                onClick={() => nextStep("experience")}
+                className="bg-primary text-primary-foreground px-10 py-4 rounded-full font-medium text-lg hover:bg-[#e85a8a] transition-all flex items-center gap-2 mx-auto shadow-xl shadow-[#FF6B9D]/25 hover:-translate-y-1"
               >
                 Let's Begin <ChevronRight className="w-5 h-5" />
               </button>
+            </motion.div>
+          )}
+
+          {step === "experience" && (
+            <motion.div
+              key="experience"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="mx-auto max-w-3xl py-10 text-center"
+            >
+              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-primary/80">
+                Step 1
+              </p>
+              <h1 className="mb-3 font-serif text-3xl font-medium md:text-4xl">Choose Experience Type</h1>
+              <p className="mx-auto mb-12 max-w-xl text-muted-foreground">
+                A full birthday website, or a quiet letter they can open anywhere — both feel handmade.
+              </p>
+
+              <div className="mx-auto grid max-w-2xl gap-5 md:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExperienceType("website");
+                    nextStep("recipient");
+                  }}
+                  className="group rounded-3xl border border-border bg-white/70 p-8 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+                >
+                  <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <Sparkles className="h-6 w-6" />
+                  </div>
+                  <h2 className="mb-2 font-serif text-xl font-medium">Website</h2>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Timeline, photos, music, and a reveal — the full Aura surprise.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExperienceType("letter");
+                    setLetterBodyTouched(false);
+                    nextStep("recipient");
+                  }}
+                  className="group rounded-3xl border border-[#FFD6E7] bg-gradient-to-br from-[#FFF7FA] to-[#FFE4EC]/60 p-8 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+                >
+                  <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/80 text-primary">
+                    <Type className="h-6 w-6" />
+                  </div>
+                  <h2 className="mb-2 font-serif text-xl font-medium">Letter</h2>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    One scroll, one heartbeat — words first, optional image, shareable link.
+                  </p>
+                </button>
+              </div>
+
+              <div className="mt-12 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => nextStep("welcome")}
+                  className="flex items-center gap-2 rounded-full px-6 py-3 font-medium text-muted-foreground transition-colors hover:bg-secondary"
+                >
+                  <ChevronLeft className="h-4 w-4" /> Back
+                </button>
+              </div>
             </motion.div>
           )}
 
@@ -632,38 +1117,191 @@ export default function CreateWebsite() {
                   </div>
                 </div>
 
-                <div className="bg-gradient-to-r from-pink-50 to-purple-50 p-6 rounded-2xl border border-pink-100 flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shrink-0 shadow-sm">
-                    <Lock className="w-5 h-5 text-pink-500" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between mb-2">
-                      <div>
-                        <h4 className="font-medium text-pink-900">Confession Mode</h4>
-                        <p className="text-sm text-pink-700/80">Make it subtle and emotionally expressive</p>
-                      </div>
-                      <Switch checked={confessionMode} onCheckedChange={setConfessionMode} />
+                {experienceType === "website" ? (
+                  <div className="bg-gradient-to-r from-pink-50 to-purple-50 p-6 rounded-2xl border border-pink-100 flex items-start gap-4">
+                    <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shrink-0 shadow-sm">
+                      <Lock className="w-5 h-5 text-pink-500" />
                     </div>
-                    {confessionMode && (
-                      <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="text-xs text-pink-800 mt-2">
-                        We'll use poetic language, subtle animations, and deep aesthetic tones to convey your feelings beautifully without being overwhelming.
-                      </motion.p>
-                    )}
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <h4 className="font-medium text-pink-900">Confession Mode</h4>
+                          <p className="text-sm text-pink-700/80">Make it subtle and emotionally expressive</p>
+                        </div>
+                        <Switch checked={confessionMode} onCheckedChange={setConfessionMode} />
+                      </div>
+                      {confessionMode && (
+                        <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="text-xs text-pink-800 mt-2">
+                          We'll use poetic language, subtle animations, and deep aesthetic tones to convey your feelings beautifully without being overwhelming.
+                        </motion.p>
+                      )}
+                    </div>
                   </div>
-                </div>
+                ) : null}
               </div>
 
               <div className="flex justify-between pt-10 mt-10 border-t border-border">
-                <button type="button" onClick={() => nextStep("welcome")} className="text-muted-foreground px-6 py-3 rounded-full font-medium hover:bg-secondary transition-colors flex items-center gap-2">
+                <button type="button" onClick={() => nextStep("experience")} className="text-muted-foreground px-6 py-3 rounded-full font-medium hover:bg-secondary transition-colors flex items-center gap-2">
                   <ChevronLeft className="w-4 h-4" /> Back
                 </button>
                 <button
                   type="button"
-                  onClick={() => nextStep("theme")}
+                  onClick={() => nextStep(experienceType === "letter" ? "letterType" : "theme")}
                   disabled={!name || !relationship}
-                  className="bg-foreground text-background px-8 py-3 rounded-full font-medium hover:bg-foreground/90 transition-all flex items-center gap-2 disabled:opacity-50"
+                  className="bg-primary text-primary-foreground px-8 py-3 rounded-full font-medium hover:bg-[#e85a8a] transition-all flex items-center gap-2 disabled:opacity-50 shadow-md shadow-[#FF6B9D]/20"
                 >
                   Next Step <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {step === "letterType" && experienceType === "letter" && (
+            <motion.div
+              key="letterType"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="glass-card rounded-3xl border border-white/20 bg-white/40 p-8 shadow-sm md:p-12"
+            >
+              <h2 className="mb-2 font-serif text-3xl font-medium">What kind of letter?</h2>
+              <p className="mb-10 text-muted-foreground">
+                Pick a tone — we&apos;ll suggest gentle opening lines you can rewrite completely.
+              </p>
+
+              <div className="mx-auto grid max-w-xl gap-3 sm:grid-cols-2">
+                {relationship
+                  ? letterTemplates[relationshipToKey(relationship)].map((label) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => setLetterType(label)}
+                        className={`rounded-2xl border px-5 py-4 text-left text-sm font-medium transition-all ${
+                          letterType === label
+                            ? "border-primary bg-primary/5 text-primary shadow-sm"
+                            : "border-border bg-white/80 hover:border-primary/30"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))
+                  : null}
+              </div>
+
+              <div className="mt-10 flex justify-between border-t border-border pt-10">
+                <button
+                  type="button"
+                  onClick={() => nextStep("recipient")}
+                  className="flex items-center gap-2 rounded-full px-6 py-3 font-medium text-muted-foreground transition-colors hover:bg-secondary"
+                >
+                  <ChevronLeft className="h-4 w-4" /> Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() => nextStep("letterCompose")}
+                  disabled={!letterType}
+                  className="flex items-center gap-2 rounded-full bg-primary px-8 py-3 font-medium text-primary-foreground shadow-md shadow-[#FF6B9D]/20 transition-all hover:bg-[#e85a8a] disabled:opacity-50"
+                >
+                  Next Step <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {step === "letterCompose" && experienceType === "letter" && (
+            <motion.div
+              key="letterCompose"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="glass-card rounded-3xl border border-white/20 bg-white/40 p-8 shadow-sm md:p-12"
+            >
+              <h2 className="mb-2 font-serif text-3xl font-medium">Write your letter</h2>
+              <p className="mb-10 text-muted-foreground">
+                Optional title, your words in the center, one soft image if you&apos;d like.
+              </p>
+
+              <div className="mx-auto max-w-2xl space-y-8">
+                <div>
+                  <label className="mb-2 block text-sm font-medium">Title (optional)</label>
+                  <Input
+                    value={letterTitle}
+                    onChange={(e) => setLetterTitle(e.target.value)}
+                    placeholder="e.g., For you, on your birthday"
+                    className="h-12 bg-white/70"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium">Letter</label>
+                  <Textarea
+                    value={letterBody}
+                    onChange={(e) => {
+                      setLetterBodyTouched(true);
+                      setLetterBody(e.target.value);
+                    }}
+                    placeholder="Start typing…"
+                    className="min-h-[280px] resize-none bg-white/80 p-6 text-base leading-relaxed shadow-inner"
+                  />
+                  <p className="mt-2 text-right text-xs text-muted-foreground">{letterBody.length} characters</p>
+                </div>
+
+                <div className="rounded-2xl border border-dashed border-[#FFD6E7] bg-[#FFF7FA]/80 p-6">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="font-medium">Featured image (optional)</h3>
+                      <p className="text-sm text-muted-foreground">One photo beneath your words.</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => letterImageInputRef.current?.click()}
+                        className="rounded-full border border-border bg-white px-5 py-2.5 text-sm font-medium shadow-sm transition-colors hover:bg-secondary"
+                      >
+                        <Upload className="mr-2 inline h-4 w-4" />
+                        Add image
+                      </button>
+                      {letterImage ? (
+                        <button
+                          type="button"
+                          onClick={() => setLetterImage(null)}
+                          className="text-sm font-medium text-muted-foreground underline-offset-4 hover:underline"
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <input
+                    ref={letterImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleLetterImageUpload}
+                  />
+                  {letterImage ? (
+                    <div className="mt-5 overflow-hidden rounded-2xl border border-[#FFD6E7]/80 bg-white shadow-sm">
+                      <img src={letterImage} alt="" className="max-h-64 w-full object-cover" />
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="mt-10 flex justify-between border-t border-border pt-10">
+                <button
+                  type="button"
+                  onClick={() => nextStep("letterType")}
+                  className="flex items-center gap-2 rounded-full px-6 py-3 font-medium text-muted-foreground transition-colors hover:bg-secondary"
+                >
+                  <ChevronLeft className="h-4 w-4" /> Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() => nextStep("theme")}
+                  disabled={!letterBody.trim()}
+                  className="flex items-center gap-2 rounded-full bg-primary px-8 py-3 font-medium text-primary-foreground shadow-md shadow-[#FF6B9D]/20 transition-all hover:bg-[#e85a8a] disabled:opacity-50"
+                >
+                  Next Step <ChevronRight className="h-4 w-4" />
                 </button>
               </div>
             </motion.div>
@@ -702,12 +1340,31 @@ export default function CreateWebsite() {
               </div>
 
               <div className="flex justify-between pt-10 mt-10 border-t border-border">
-                <button type="button" onClick={() => nextStep("recipient")} className="text-muted-foreground px-6 py-3 rounded-full font-medium hover:bg-secondary transition-colors flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => nextStep(experienceType === "letter" ? "letterCompose" : "recipient")}
+                  className="text-muted-foreground px-6 py-3 rounded-full font-medium hover:bg-secondary transition-colors flex items-center gap-2"
+                >
                   <ChevronLeft className="w-4 h-4" /> Back
                 </button>
-                <button type="button" onClick={() => nextStep("memories")} className="bg-foreground text-background px-8 py-3 rounded-full font-medium hover:bg-foreground/90 transition-all flex items-center gap-2">
-                  Next Step <ChevronRight className="w-4 h-4" />
-                </button>
+                {experienceType === "letter" ? (
+                  <button
+                    type="button"
+                    onClick={() => void finalizeExperience()}
+                    disabled={!letterBody.trim()}
+                    className="flex items-center gap-2 rounded-full bg-primary px-8 py-3 font-medium text-primary-foreground shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-primary/30 disabled:opacity-50"
+                  >
+                    Create letter <Wand2 className="h-4 w-4" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => nextStep("memories")}
+                    className="bg-primary text-primary-foreground px-8 py-3 rounded-full font-medium hover:bg-[#e85a8a] transition-all flex items-center gap-2 shadow-md shadow-[#FF6B9D]/20"
+                  >
+                    Next Step <ChevronRight className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </motion.div>
           )}
@@ -718,7 +1375,24 @@ export default function CreateWebsite() {
               <div className="flex items-start justify-between mb-10">
                 <div>
                   <h2 className="text-3xl font-serif font-medium mb-2">Build a Memory Timeline</h2>
-                  <p className="text-muted-foreground">Upload photos and add dates to create a beautiful storytelling journey.</p>
+                  <p className="text-muted-foreground">
+                    Upload photos, add dates, and weave optional story notes. Suggested chapters match
+                    your relationship — add only what feels right.
+                  </p>
+                  {relationship ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {memoryTemplates[relationshipToKey(relationship)].map((title) => (
+                        <button
+                          key={title}
+                          type="button"
+                          onClick={() => addSuggestedMemory(title)}
+                          className="rounded-full border border-[#FFD6E7] bg-white/80 px-3 py-1.5 text-xs font-medium text-[#FF6B9D] shadow-sm transition-colors hover:bg-[#FFF7FA]"
+                        >
+                          + {title}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 <button
                   type="button"
@@ -751,18 +1425,50 @@ export default function CreateWebsite() {
                     >
                       <div className="w-32 h-32 rounded-xl overflow-hidden shrink-0 bg-secondary relative">
                         <img src={memory.image} alt="Memory" className="w-full h-full object-cover" />
-                        <div className="absolute top-2 left-2 bg-black/50 backdrop-blur-md text-white text-xs font-medium px-2 py-1 rounded-md">
+                        <div className="absolute left-2 top-2 rounded-md bg-white/85 px-2 py-1 text-xs font-medium text-foreground shadow-sm backdrop-blur-md">
                           #{index + 1}
                         </div>
                       </div>
                       <div className="flex-1 space-y-3">
+                        {memory.templateTitle ? (
+                          <p className="text-xs font-semibold uppercase tracking-wider text-primary">
+                            Suggested: {memory.templateTitle}
+                          </p>
+                        ) : null}
                         <div>
-                          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 block">Caption / Story</label>
-                          <Input 
-                            value={memory.caption} 
-                            onChange={(e) => updateMemory(memory.id, "caption", e.target.value)}
-                            placeholder="e.g., The day we first met at the coffee shop..." 
+                          <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                            Chapter title
+                          </label>
+                          <Input
+                            value={memory.title ?? ""}
+                            onChange={(e) => updateMemory(memory.id, "title", e.target.value)}
+                            placeholder={memory.templateTitle || "Name this moment…"}
                             className="h-10 bg-secondary/30"
+                          />
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            Clear the field to use the suggested title on the published page.
+                          </p>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                            Short caption
+                          </label>
+                          <Input
+                            value={memory.caption}
+                            onChange={(e) => updateMemory(memory.id, "caption", e.target.value)}
+                            placeholder="A one-line label for this moment…"
+                            className="h-10 bg-secondary/30"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                            Story (optional)
+                          </label>
+                          <Textarea
+                            value={memory.body ?? ""}
+                            onChange={(e) => updateMemory(memory.id, "body", e.target.value)}
+                            placeholder="Write what you felt, what you remember, what you want them to know…"
+                            className="min-h-[88px] resize-none bg-secondary/30 text-sm"
                           />
                         </div>
                         <div>
@@ -777,6 +1483,24 @@ export default function CreateWebsite() {
                             />
                           </div>
                         </div>
+                        {memory.image ? (
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setFeaturedMemory(memory.id)}
+                              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                                memory.isFeatured
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-[#FFD6E7] bg-white/80 text-[#1A1A1A]/70 hover:border-primary/40"
+                              }`}
+                            >
+                              <Star
+                                className={`h-3.5 w-3.5 ${memory.isFeatured ? "fill-primary text-primary" : ""}`}
+                              />
+                              {memory.isFeatured ? "Featured image" : "Set as featured"}
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
                     </motion.div>
                   ))}
@@ -787,7 +1511,7 @@ export default function CreateWebsite() {
                 <button type="button" onClick={() => nextStep("theme")} className="text-muted-foreground px-6 py-3 rounded-full font-medium hover:bg-secondary transition-colors flex items-center gap-2">
                   <ChevronLeft className="w-4 h-4" /> Back
                 </button>
-                <button type="button" onClick={() => nextStep("message")} className="bg-foreground text-background px-8 py-3 rounded-full font-medium hover:bg-foreground/90 transition-all flex items-center gap-2">
+                <button type="button" onClick={() => nextStep("message")} className="bg-primary text-primary-foreground px-8 py-3 rounded-full font-medium hover:bg-[#e85a8a] transition-all flex items-center gap-2 shadow-md shadow-[#FF6B9D]/20">
                   Next Step <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
@@ -825,7 +1549,7 @@ export default function CreateWebsite() {
                     <button type="button" onClick={() => setMessage("Happy Birthday! Wishing you a day filled with joy, laughter, and all your favorite things.")} className="w-full bg-white border border-border text-foreground py-3 rounded-xl text-sm font-medium hover:bg-secondary transition-colors">
                       Keep it Simple
                     </button>
-                    <button type="button" onClick={regenerateWithAI} className="w-full bg-black text-white py-3 rounded-xl text-sm font-medium hover:bg-black/90 transition-colors">
+                    <button type="button" onClick={regenerateWithAI} className="w-full rounded-xl bg-primary py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-[#e85a8a]">
                       Regenerate with AI
                     </button>
                   </div>
@@ -836,8 +1560,90 @@ export default function CreateWebsite() {
                 <button type="button" onClick={() => nextStep("memories")} className="text-muted-foreground px-6 py-3 rounded-full font-medium hover:bg-secondary transition-colors flex items-center gap-2">
                   <ChevronLeft className="w-4 h-4" /> Back
                 </button>
-                <button type="button" onClick={() => nextStep("music")} className="bg-foreground text-background px-8 py-3 rounded-full font-medium hover:bg-foreground/90 transition-all flex items-center gap-2">
+                <button type="button" onClick={() => nextStep("delivery")} className="bg-primary text-primary-foreground px-8 py-3 rounded-full font-medium hover:bg-[#e85a8a] transition-all flex items-center gap-2 shadow-md shadow-[#FF6B9D]/20">
                   Next Step <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* SCHEDULED SURPRISE */}
+          {step === "delivery" && (
+            <motion.div
+              key="delivery"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="glass-card rounded-3xl border border-white/20 bg-white/40 p-8 shadow-sm md:p-12"
+            >
+              <h2 className="mb-2 font-serif text-3xl font-medium">Schedule the surprise</h2>
+              <p className="mb-10 text-muted-foreground">
+                Optionally pick when the full experience unlocks. Before then, they see a gentle
+                countdown — still emotional, still yours.
+              </p>
+
+              <div className="max-w-xl space-y-6 rounded-2xl border border-[#FFD6E7]/80 bg-white/70 p-6 shadow-sm">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <h4 className="font-medium text-foreground">Schedule surprise reveal</h4>
+                    <p className="text-sm text-muted-foreground">
+                      They tap to open, then see “unlocks in…” until the moment you choose.
+                    </p>
+                  </div>
+                  <Switch checked={scheduleSurprise} onCheckedChange={setScheduleSurprise} />
+                </div>
+                {scheduleSurprise && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    className="space-y-4 border-t border-[#FFD6E7]/60 pt-5"
+                  >
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                          Date
+                        </Label>
+                        <Input
+                          type="date"
+                          value={unlockDate}
+                          onChange={(e) => setUnlockDate(e.target.value)}
+                          className="mt-1.5 h-12 bg-white/80"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                          Time
+                        </Label>
+                        <Input
+                          type="time"
+                          value={unlockTime}
+                          onChange={(e) => setUnlockTime(e.target.value)}
+                          className="mt-1.5 h-12 bg-white/80"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      You can always open early from your account while signed in (creator only).
+                    </p>
+                  </motion.div>
+                )}
+              </div>
+
+              <div className="mt-10 flex justify-between border-t border-border pt-10">
+                <button
+                  type="button"
+                  onClick={() => nextStep("message")}
+                  className="flex items-center gap-2 rounded-full px-6 py-3 font-medium text-muted-foreground transition-colors hover:bg-secondary"
+                >
+                  <ChevronLeft className="h-4 w-4" /> Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() => nextStep("music")}
+                  disabled={scheduleSurprise && !unlockDate}
+                  className="flex items-center gap-2 rounded-full bg-primary px-8 py-3 font-medium text-primary-foreground shadow-md shadow-[#FF6B9D]/20 transition-all hover:bg-[#e85a8a] disabled:opacity-50"
+                >
+                  Next Step <ChevronRight className="h-4 w-4" />
                 </button>
               </div>
             </motion.div>
@@ -847,31 +1653,72 @@ export default function CreateWebsite() {
           {step === "music" && (
             <motion.div key="music" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="bg-white/40 glass-card rounded-3xl p-8 md:p-12 shadow-sm border border-white/20">
               <h2 className="text-3xl font-serif font-medium mb-2">Set the Mood with Music</h2>
-              <p className="text-muted-foreground mb-10">Select a background track that will play automatically when they open the website.</p>
+              <p className="text-muted-foreground mb-6">
+                Pick a gentle soundtrack for the published page. Playback always starts after their
+                tap — browsers require a gesture for sound.
+              </p>
+              <audio ref={previewAudioRef} className="hidden" />
 
-              <div className="grid md:grid-cols-2 gap-6 mb-8">
-                {tracks.map((t) => (
-                  <div 
+              <div className="mb-8 grid gap-6 md:grid-cols-2">
+                {musicTrackOptions.map((t) => (
+                  <div
                     key={t.id}
-                    onClick={() => setMusic(t.id)}
-                    className={`p-4 rounded-2xl border-2 flex items-center justify-between cursor-pointer transition-all ${music === t.id ? 'border-primary bg-primary/5 shadow-sm' : 'border-border bg-white hover:border-primary/30'}`}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setUploadedMusicBase64(null);
+                        setMusicTrack(t.id);
+                      }
+                    }}
+                    onClick={() => {
+                      setUploadedMusicBase64(null);
+                      setMusicTrack(t.id);
+                    }}
+                    className={`flex cursor-pointer items-center justify-between rounded-2xl border-2 p-4 transition-all ${
+                      musicTrack === t.id
+                        ? "border-primary bg-primary/5 shadow-sm"
+                        : "border-border bg-white hover:border-primary/30"
+                    }`}
                   >
                     <div className="flex items-center gap-4">
-                      <div className={`w-12 h-12 rounded-full flex items-center justify-center ${music === t.id ? 'bg-primary text-white' : 'bg-secondary text-muted-foreground'}`}>
-                        <Music className="w-5 h-5" />
+                      <div
+                        className={`flex h-12 w-12 items-center justify-center rounded-full ${
+                          musicTrack === t.id
+                            ? "bg-primary text-white"
+                            : "bg-secondary text-muted-foreground"
+                        }`}
+                      >
+                        <Music className="h-5 w-5" />
                       </div>
                       <div>
                         <h4 className="font-medium">{t.name}</h4>
                         <p className="text-sm text-muted-foreground">{t.desc}</p>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${music === t.id ? 'bg-primary/20 text-primary' : 'bg-secondary hover:bg-secondary/80'}`}
-                      onClick={(e) => { e.stopPropagation(); setIsPlaying(!isPlaying); }}
-                    >
-                      {music === t.id && isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-                    </button>
+                    {t.file ? (
+                      <button
+                        type="button"
+                        className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
+                          musicTrack === t.id ? "bg-primary/20 text-primary" : "bg-secondary hover:bg-secondary/80"
+                        }`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setUploadedMusicBase64(null);
+                          setMusicTrack(t.id);
+                          const el = previewAudioRef.current;
+                          if (!el) return;
+                          el.src = `/music/${t.file}.mp3`;
+                          el.play().catch(() => {});
+                        }}
+                        aria-label={`Preview ${t.name}`}
+                      >
+                        <Play className="ml-0.5 h-4 w-4" />
+                      </button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -897,11 +1744,19 @@ export default function CreateWebsite() {
               </div>
 
               <div className="flex justify-between pt-10 mt-10 border-t border-border">
-                <button type="button" onClick={() => nextStep("message")} className="text-muted-foreground px-6 py-3 rounded-full font-medium hover:bg-secondary transition-colors flex items-center gap-2">
-                  <ChevronLeft className="w-4 h-4" /> Back
+                <button
+                  type="button"
+                  onClick={() => nextStep("delivery")}
+                  className="flex items-center gap-2 rounded-full px-6 py-3 font-medium text-muted-foreground transition-colors hover:bg-secondary"
+                >
+                  <ChevronLeft className="h-4 w-4" /> Back
                 </button>
-                <button type="button" onClick={handleGenerate} className="bg-primary text-white px-10 py-3 rounded-full font-medium hover:bg-primary/90 transition-all flex items-center gap-2 shadow-lg hover:shadow-primary/30 shadow-primary/20">
-                  Generate Website <Wand2 className="w-4 h-4" />
+                <button
+                  type="button"
+                  onClick={() => void finalizeExperience()}
+                  className="flex items-center gap-2 rounded-full bg-primary px-10 py-3 font-medium text-white shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-primary/30"
+                >
+                  Generate Website <Wand2 className="h-4 w-4" />
                 </button>
               </div>
             </motion.div>
@@ -918,14 +1773,38 @@ export default function CreateWebsite() {
                 </div>
               </div>
               
-              <h2 className="text-3xl font-serif font-medium mb-4">Crafting Your Masterpiece...</h2>
+              <h2 className="text-3xl font-serif font-medium mb-4">
+                {experienceType === "letter" ? "Sealing your letter..." : "Crafting Your Masterpiece..."}
+              </h2>
               <div className="h-8 mb-8 text-muted-foreground font-medium">
                 <AnimatePresence mode="wait">
-                  {progress < 25 && <motion.span key="1" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>Structuring timeline and memories...</motion.span>}
-                  {progress >= 25 && progress < 50 && <motion.span key="2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>Applying the '{themes.find(t=>t.id===theme)?.name}' aesthetic...</motion.span>}
-                  {progress >= 50 && progress < 75 && <motion.span key="3" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>Integrating background music...</motion.span>}
-                  {progress >= 75 && progress < 90 && <motion.span key="4" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>Writing beautifully optimized HTML/CSS...</motion.span>}
-                  {progress >= 90 && <motion.span key="5" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>Finalizing the deployment package...</motion.span>}
+                  {experienceType === "letter" ? (
+                    <>
+                      {progress < 34 && (
+                        <motion.span key="l1" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                          Choosing paper-soft colors…
+                        </motion.span>
+                      )}
+                      {progress >= 34 && progress < 68 && (
+                        <motion.span key="l2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                          Setting gentle line breaks and rhythm…
+                        </motion.span>
+                      )}
+                      {progress >= 68 && (
+                        <motion.span key="l3" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                          Preparing your shareable link…
+                        </motion.span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {progress < 25 && <motion.span key="1" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>Structuring timeline and memories...</motion.span>}
+                      {progress >= 25 && progress < 50 && <motion.span key="2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>Applying the '{themes.find(t=>t.id===theme)?.name}' aesthetic...</motion.span>}
+                      {progress >= 50 && progress < 75 && <motion.span key="3" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>Integrating background music...</motion.span>}
+                      {progress >= 75 && progress < 90 && <motion.span key="4" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>Writing beautifully optimized HTML/CSS...</motion.span>}
+                      {progress >= 90 && <motion.span key="5" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>Finalizing the deployment package...</motion.span>}
+                    </>
+                  )}
                 </AnimatePresence>
               </div>
 
@@ -947,23 +1826,33 @@ export default function CreateWebsite() {
   >
     <div className="text-center">
       <h2 className="text-4xl font-serif font-medium mb-3">
-        Your Website is Ready!
+        {experienceType === "letter" ? "Your letter is ready" : "Your Website is Ready!"}
       </h2>
       <p className="text-lg text-muted-foreground">
-        Aura has successfully generated your website for {name}.
+        {experienceType === "letter"
+          ? `Aura saved a quiet page for ${name || "them"} — open it like a note in their pocket.`
+          : `Aura has successfully generated your website for ${name}.`}
       </p>
     </div>
 
     <div className="bg-white rounded-2xl shadow-xl overflow-hidden border">
       <iframe
-        src={createdWebsiteId ? `/w/${createdWebsiteId}` : ""}
+        src={
+          createdWebsiteId
+            ? experienceType === "letter"
+              ? `/letter/${createdWebsiteId}`
+              : `/w/${createdWebsiteId}`
+            : ""
+        }
         className="w-full h-[500px]"
-        title="Website Preview"
+        title={experienceType === "letter" ? "Letter preview" : "Website Preview"}
       />
     </div>
 
     <div className="max-w-xl mx-auto space-y-2">
-      <label className="text-sm font-medium mb-2 block">Website Link Name</label>
+      <label className="text-sm font-medium mb-2 block">
+        {experienceType === "letter" ? "Link name (optional)" : "Website Link Name"}
+      </label>
       <Input
         value={websiteLinkName}
         onChange={(e) => setWebsiteLinkName(e.target.value)}
@@ -984,7 +1873,7 @@ export default function CreateWebsite() {
       <button
         type="button"
         onClick={handleOpenPreview}
-        className="bg-black text-white px-8 py-3 rounded-xl font-medium hover:bg-black/90 transition-all"
+        className="rounded-xl bg-primary px-8 py-3 font-medium text-primary-foreground transition-all hover:bg-[#e85a8a]"
       >
         Fullscreen Preview
       </button>
@@ -994,24 +1883,26 @@ export default function CreateWebsite() {
         onClick={handlePublishWebsite}
         className="bg-primary text-white px-8 py-3 rounded-xl font-medium hover:bg-primary/90 transition-all"
       >
-        Publish Website
+        {experienceType === "letter" ? "Publish letter" : "Publish Website"}
       </button>
 
       <button
         type="button"
-        onClick={() => setStep("recipient")}
+        onClick={() => setStep(experienceType === "letter" ? "letterCompose" : "recipient")}
         className="bg-gray-200 text-black px-8 py-3 rounded-xl font-medium hover:bg-gray-300 transition-all"
       >
         Edit Details
       </button>
 
-      <button
-        type="button"
-        onClick={handleDownloadHtml}
-        className="bg-white border px-8 py-3 rounded-xl font-medium hover:bg-gray-100 transition-all"
-      >
-        Download HTML/CSS
-      </button>
+      {experienceType === "website" ? (
+        <button
+          type="button"
+          onClick={handleDownloadHtml}
+          className="bg-white border px-8 py-3 rounded-xl font-medium hover:bg-gray-100 transition-all"
+        >
+          Download HTML/CSS
+        </button>
+      ) : null}
     </div>
   </motion.div>
 )}

@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aura — Cinematic Intro</title>
+
+  <!-- Google Fonts: Playfair Display (logo) + DM Sans (subtitle) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;1,9..40,400&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet" />
+
+  <!-- Splitting.js (character / word animation) -->
+  <link rel="stylesheet" href="https://unpkg.com/splitting/dist/splitting.css" />
+
+  <!-- ═══ CDN LOAD ORDER ═══ -->
+  <!-- 1) Three.js r128 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- 2) GSAP 3 + CustomEase -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/CustomEase.min.js"></script>
+  <!-- 3) Splitting.js -->
+  <script src="https://unpkg.com/splitting/dist/splitting.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: #0a0a0a;
+      color: #fafafa;
+      font-family: "DM Sans", system-ui, sans-serif;
+    }
+
+    /* Page beneath intro (swap for your app root) */
+    #page-root {
+      min-height: 100vh;
+      padding: 4rem 1.5rem;
+      max-width: 56rem;
+      margin: 0 auto;
+    }
+
+    /* ── INTRO: full-screen fixed overlay, z-index 9999, #000 ── */
+    #aura-intro-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      cursor: pointer;
+      opacity: 1;
+    }
+
+    /* WebGL — parallax layer (most motion) */
+    #aura-canvas-parallax {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      will-change: transform, opacity;
+    }
+
+    #aura-canvas-parallax canvas {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    /* t=always — radial vignette, pointer-events: none */
+    .aura-intro-vignette {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(ellipse at center, transparent 30%, rgba(0, 0, 0, 0.85) 100%);
+      z-index: 2;
+    }
+
+    /* Sparkle container */
+    #aura-sparkles-host {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 3;
+      overflow: hidden;
+    }
+
+    .aura-sparkle {
+      position: absolute;
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: #ffd700;
+      opacity: 0;
+    }
+
+    .aura-intro-typography {
+      position: relative;
+      z-index: 4;
+      text-align: center;
+      pointer-events: none;
+    }
+
+    /* LAYER 3 — logo "aura" — Splitting chars */
+    #aura-logo-wrap {
+      will-change: transform;
+    }
+
+    .aura-logo {
+      font-family: "Playfair Display", Georgia, serif;
+      font-size: 7vw;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1.05;
+      margin: 0;
+      text-shadow:
+        0 0 60px rgba(255, 107, 157, 0.5),
+        0 0 120px rgba(255, 107, 157, 0.2);
+    }
+
+    .aura-logo .char {
+      display: inline-block;
+      will-change: transform, opacity, filter;
+    }
+
+    /* LAYER 4 — subtitle — Splitting words */
+    .aura-subtitle {
+      margin-top: 1.25rem;
+      font-family: "DM Sans", sans-serif;
+      font-size: 13px;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.45);
+      font-weight: 400;
+      will-change: transform;
+    }
+
+    .aura-subtitle .word {
+      display: inline-block;
+      margin-right: 0.55em;
+      will-change: transform, opacity;
+    }
+
+    .aura-subtitle .word:last-child {
+      margin-right: 0;
+    }
+
+    .aura-skip-hint {
+      position: absolute;
+      bottom: 1.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 5;
+      font-size: 11px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.35);
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+  <main id="page-root">
+    <h1 style="font-family: system-ui; font-size: 1.5rem; margin-bottom: 0.5rem;">Your page content</h1>
+    <p style="opacity: 0.75; line-height: 1.6;">
+      Placeholder: your SPA or static site lives here. The intro overlay sits above until it completes or is skipped.
+      Add <code>?replay</code> to force the intro again. Session key: <code>aura_intro_seen</code>.
+    </p>
+  </main>
+
+  <!--
+    ═══════════════════════════════════════════════════════════════════════
+    AURA INTRO — PHASE MAP (edit master timeline in script)
+    ═══════════════════════════════════════════════════════════════════════
+    t=0.0   Canvas opacity 0 → 1 (0.5s)
+    t=0.0   Particle field: slow inward pull (radius scale 1 → ~0.06)
+    t=0.5   Explosive outward push (radius scale spike + overshoot, then settle)
+    t=0.8   Logo chars in (Splitting stagger, CustomEase "bloom")
+    t=1.6   Subtitle words in (stagger 0.06s) — spec; alt: logoEnd + 0.5s via callback
+    t=2.4   Hold (breathing room before long fade)
+    t=6.2   Full overlay fades out (0.8s) — total ~7s before teardown
+    t=7.0   Remove overlay from DOM, set sessionStorage
+
+    SHORT MODE (spec’s 4s teardown): set USE_SHORT_TIMELINE = true in script.
+    ═══════════════════════════════════════════════════════════════════════
+  -->
+  <div id="aura-intro-overlay" role="dialog" aria-label="Aura intro">
+    <div id="aura-canvas-parallax"></div>
+    <div class="aura-intro-vignette"></div>
+    <div id="aura-sparkles-host"></div>
+
+    <div class="aura-intro-typography">
+      <div id="aura-logo-wrap">
+        <h1 class="aura-logo">aura</h1>
+      </div>
+      <p class="aura-subtitle">every birthday deserves a moment</p>
+    </div>
+
+    <div class="aura-skip-hint">Click anywhere to skip</div>
+  </div>
+
+  <script>
+(function () {
+  "use strict";
+
+  var STORAGE_KEY = "aura_intro_seen";
+  var params = new URLSearchParams(window.location.search);
+  var forceReplay = params.has("replay");
+
+  if (sessionStorage.getItem(STORAGE_KEY) === "true" && !forceReplay) {
+    var skipEl = document.getElementById("aura-intro-overlay");
+    if (skipEl && skipEl.parentNode) skipEl.parentNode.removeChild(skipEl);
+    return;
+  }
+
+  /* Toggle: exact 4s teardown (spec) vs ~7s cinematic hold */
+  var USE_SHORT_TIMELINE = false;
+  var OVERLAY_FADE_START = USE_SHORT_TIMELINE ? 3.2 : 6.2;
+  var OVERLAY_FADE_DUR = 0.8;
+
+  var overlay = document.getElementById("aura-intro-overlay");
+  var canvasHost = document.getElementById("aura-canvas-parallax");
+  var logoWrap = document.getElementById("aura-logo-wrap");
+  var subtitleEl = document.querySelector(".aura-subtitle");
+  var sparklesHost = document.getElementById("aura-sparkles-host");
+
+  if (!overlay || !canvasHost || typeof THREE === "undefined" || typeof gsap === "undefined" || typeof CustomEase === "undefined") {
+    console.error("Aura intro: missing DOM or GSAP/THREE.");
+    return;
+  }
+
+  gsap.registerPlugin(CustomEase);
+
+  CustomEase.create(
+    "bloom",
+    "M0,0 C0.14,0 0.242,0.438 0.272,0.561 0.313,0.728 0.354,0.963 1,1"
+  );
+
+  var done = false;
+  function finishIntro() {
+    if (done) return;
+    done = true;
+    sessionStorage.setItem(STORAGE_KEY, "true");
+    try { masterTl.kill(); } catch (e) {}
+    window.removeEventListener("mousemove", onMouseMove);
+    window.removeEventListener("click", onSkipClick, true);
+    window.removeEventListener("deviceorientation", onOrientation, true);
+    if (animationId) cancelAnimationFrame(animationId);
+    if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+  }
+
+  function onSkipClick() {
+    gsap.killTweensOf(overlay);
+    gsap.to(overlay, {
+      opacity: 0,
+      duration: 0.35,
+      ease: "power2.inOut",
+      onComplete: finishIntro,
+    });
+  }
+
+  /* ─── Splitting.js: chars on logo, words on subtitle ─── */
+  if (typeof Splitting === "function") {
+    Splitting({ target: ".aura-logo", by: "chars" });
+    Splitting({ target: ".aura-subtitle", by: "words" });
+  }
+
+  var logoChars = document.querySelectorAll(".aura-logo .char");
+  var subWords = document.querySelectorAll(".aura-subtitle .word");
+
+  /* ═══ LAYER 1: Three.js — 600 pts, sphere, Y-gradient rose → gold ═══ */
+  var PARTICLE_COUNT = 600;
+  var SPHERE_RADIUS = 42;
+  var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera.position.z = 80;
+
+  var scene = new THREE.Scene();
+  var particleGroup = new THREE.Group();
+  scene.add(particleGroup);
+
+  var geom = new THREE.BufferGeometry();
+  var positions = new Float32Array(PARTICLE_COUNT * 3);
+  var base = new Float32Array(PARTICLE_COUNT * 3);
+  var dirs = new Float32Array(PARTICLE_COUNT * 3);
+  var colors = new Float32Array(PARTICLE_COUNT * 3);
+
+  var cRose = new THREE.Color(0xff6b9d);
+  var cGold = new THREE.Color(0xffd700);
+  var golden = Math.PI * (3 - Math.sqrt(5));
+
+  for (var i = 0; i < PARTICLE_COUNT; i++) {
+    var yi = 1 - (i / Math.max(1, PARTICLE_COUNT - 1)) * 2;
+    var ri = Math.sqrt(Math.max(0, 1 - yi * yi));
+    var th = golden * i;
+    var xi = Math.cos(th) * ri;
+    var zi = Math.sin(th) * ri;
+    var bx = xi * SPHERE_RADIUS;
+    var by = yi * SPHERE_RADIUS;
+    var bz = zi * SPHERE_RADIUS;
+    base[i * 3] = bx;
+    base[i * 3 + 1] = by;
+    base[i * 3 + 2] = bz;
+    var len = Math.sqrt(bx * bx + by * by + bz * bz) || 1;
+    dirs[i * 3] = bx / len;
+    dirs[i * 3 + 1] = by / len;
+    dirs[i * 3 + 2] = bz / len;
+    var t = (by / SPHERE_RADIUS) * 0.5 + 0.5;
+    var col = cRose.clone().lerp(cGold, t);
+    colors[i * 3] = col.r;
+    colors[i * 3 + 1] = col.g;
+    colors[i * 3 + 2] = col.b;
+    positions[i * 3] = bx;
+    positions[i * 3 + 1] = by;
+    positions[i * 3 + 2] = bz;
+  }
+
+  geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geom.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+
+  var mat = new THREE.PointsMaterial({
+    size: 0.62,
+    vertexColors: true,
+    transparent: true,
+    opacity: 1,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    sizeAttenuation: true,
+  });
+
+  var points = new THREE.Points(geom, mat);
+  particleGroup.add(points);
+
+  var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0x000000, 0);
+  canvasHost.appendChild(renderer.domElement);
+
+  /* radiusScale: 1 = rest; pull <1 collapses; >1 explodes */
+  var radiusScale = { value: 1 };
+  var explode = { value: 0 };
+
+  function updateParticles() {
+    var arr = geom.attributes.position.array;
+    var rs = radiusScale.value;
+    var ex = explode.value;
+    for (var i = 0; i < PARTICLE_COUNT; i++) {
+      var bx = base[i * 3];
+      var by = base[i * 3 + 1];
+      var bz = base[i * 3 + 2];
+      var dx = dirs[i * 3];
+      var dy = dirs[i * 3 + 1];
+      var dz = dirs[i * 3 + 2];
+      var ox = bx * rs + dx * ex;
+      var oy = by * rs + dy * ex;
+      var oz = bz * rs + dz * ex;
+      arr[i * 3] = ox;
+      arr[i * 3 + 1] = oy;
+      arr[i * 3 + 2] = oz;
+    }
+    geom.attributes.position.needsUpdate = true;
+  }
+
+  var spinY = 0;
+  var targetRX = 0;
+  var targetRY = 0;
+  var curRX = 0;
+  var curRY = 0;
+
+  var animationId = 0;
+  function renderLoop() {
+    animationId = requestAnimationFrame(renderLoop);
+    spinY += 0.001;
+    curRX += (targetRX - curRX) * 0.08;
+    curRY += (targetRY - curRY) * 0.08;
+    /* Slow Y spin + mouse tilt ±15° on X/Y */
+    particleGroup.rotation.x = curRX;
+    particleGroup.rotation.y = spinY + curRY;
+    particleGroup.rotation.z = 0;
+    updateParticles();
+    renderer.render(scene, camera);
+  }
+  renderLoop();
+
+  function onResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+  window.addEventListener("resize", onResize);
+
+  /* ═══ Sparkles: 8 dots, float 60–120px, stagger start 0.8–2.0s ═══ */
+  for (var s = 0; s < 8; s++) {
+    var sp = document.createElement("div");
+    sp.className = "aura-sparkle";
+    sp.style.left = Math.random() * 100 + "%";
+    sp.style.top = (35 + Math.random() * 50) + "%";
+    sparklesHost.appendChild(sp);
+    var startT = 0.8 + Math.random() * 1.2;
+    gsap.set(sp, { opacity: 0.95 });
+    gsap.to(sp, {
+      y: "-=" + (60 + Math.random() * 60),
+      x: "+=" + ((Math.random() - 0.5) * 90),
+      opacity: 0,
+      duration: 1.8 + Math.random() * 0.8,
+      ease: "power1.out",
+      delay: startT,
+    });
+  }
+
+  /* ═══ Parallax: quickTo — canvas ±20/14, logo ±12/8, subtitle ±6/4 (opposite mouse) ═══ */
+  gsap.set([canvasHost, logoWrap, subtitleEl], { x: 0, y: 0 });
+
+  var qCx = gsap.quickTo(canvasHost, "x", { duration: 0.6, ease: "power3.out" });
+  var qCy = gsap.quickTo(canvasHost, "y", { duration: 0.6, ease: "power3.out" });
+  var qLx = gsap.quickTo(logoWrap, "x", { duration: 0.6, ease: "power3.out" });
+  var qLy = gsap.quickTo(logoWrap, "y", { duration: 0.6, ease: "power3.out" });
+  var qSx = gsap.quickTo(subtitleEl, "x", { duration: 0.6, ease: "power3.out" });
+  var qSy = gsap.quickTo(subtitleEl, "y", { duration: 0.6, ease: "power3.out" });
+
+  var maxTilt = 15 * Math.PI / 180;
+  var useGyro = false;
+
+  function applyParallax(nx, ny) {
+    qLx(-nx * 12);
+    qLy(-ny * 8);
+    qSx(-nx * 6);
+    qSy(-ny * 4);
+    qCx(-nx * 20);
+    qCy(-ny * 14);
+    targetRY = nx * maxTilt;
+    targetRX = -ny * maxTilt;
+  }
+
+  function onMouseMove(e) {
+    if (useGyro || done) return;
+    var nx = (e.clientX / window.innerWidth) * 2 - 1;
+    var ny = (e.clientY / window.innerHeight) * 2 - 1;
+    applyParallax(nx, ny);
+  }
+
+  function onOrientation(e) {
+    if (done || e.alpha == null) return;
+    useGyro = true;
+    var gx = (e.gamma || 0) / 45;
+    var gy = (e.beta || 0) / 45;
+    gx = Math.max(-1, Math.min(1, gx));
+    gy = Math.max(-1, Math.min(1, gy));
+    applyParallax(gx, gy);
+  }
+
+  /* Mobile: gyro tilt instead of mouse (fallback: mouse only if no events) */
+  if (window.DeviceOrientationEvent && "ontouchstart" in window) {
+    window.addEventListener("deviceorientation", onOrientation, true);
+  }
+  window.addEventListener("mousemove", onMouseMove);
+
+  /* ═══ GSAP master timeline ═══ */
+  gsap.set(canvasHost, { opacity: 0 });
+
+  var masterTl = gsap.timeline();
+
+  /* t=0 — canvas fade in 0.5s */
+  masterTl.to(canvasHost, { opacity: 1, duration: 0.5, ease: "power2.out" }, 0);
+
+  /* t=0–0.5 — inward pull */
+  masterTl.to(radiusScale, { value: 0.06, duration: 0.5, ease: "power2.in" }, 0);
+
+  /* t=0.5 — explosion outward */
+  masterTl.to(radiusScale, { value: 1.35, duration: 0.45, ease: "power4.out" }, 0.5);
+  masterTl.to(explode, { value: 110, duration: 0.35, ease: "power4.out" }, 0.5);
+  masterTl.to(explode, { value: 0, duration: 1.1, ease: "power2.out" }, 0.75);
+  masterTl.to(radiusScale, { value: 1, duration: 0.9, ease: "power3.out" }, 0.95);
+
+  /* t=0.8 — logo (per-char if Splitting produced .char) */
+  if (logoChars && logoChars.length > 0) {
+    masterTl.fromTo(
+      logoChars,
+      { opacity: 0, y: 40, scaleY: 1.4, filter: "blur(8px)" },
+      {
+        opacity: 1,
+        y: 0,
+        scaleY: 1,
+        filter: "blur(0px)",
+        duration: 0.6,
+        stagger: 0.08,
+        ease: "bloom",
+      },
+      0.8
+    );
+  } else {
+    masterTl.fromTo(
+      ".aura-logo",
+      { opacity: 0, y: 36, filter: "blur(8px)" },
+      { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.75, ease: "power3.out" },
+      0.8
+    );
+  }
+
+  /* t=1.6 — subtitle words */
+  if (subWords && subWords.length > 0) {
+    masterTl.fromTo(
+      subWords,
+      { opacity: 0, y: 10 },
+      { opacity: 1, y: 0, duration: 0.5, stagger: 0.06, ease: "power3.out" },
+      1.6
+    );
+  } else {
+    masterTl.fromTo(
+      ".aura-subtitle",
+      { opacity: 0, y: 10 },
+      { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" },
+      1.6
+    );
+  }
+
+  /* Optional: subtitle 0.5s after last logo char settles — uncomment to use instead of 1.6 */
+  /*
+  var logoEnd = 0.8 + (logoChars.length - 1) * 0.08 + 0.6;
+  masterTl.fromTo(subWords, ..., {}, logoEnd + 0.5);
+  */
+
+  /* t=OVERLAY_FADE_START — overlay out → teardown */
+  masterTl.to(
+    overlay,
+    {
+      opacity: 0,
+      duration: OVERLAY_FADE_DUR,
+      ease: "power2.inOut",
+      onComplete: finishIntro,
+    },
+    OVERLAY_FADE_START
+  );
+
+  window.addEventListener("click", onSkipClick, true);
+})();
+  </script>
+</body>
+</html>

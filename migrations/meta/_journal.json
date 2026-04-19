@@ -15,6 +15,13 @@
       "when": 1772538933754,
       "tag": "0001_bumpy_johnny_blaze",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1773100000000,
+      "tag": "0003_website_unlock",
+      "breakpoints": true
     }
   ]
 }

@@ -53,6 +53,10 @@ export const websites = pgTable("websites", {
   theme: text("theme").notNull(),
   content: text("content").notNull(),
 
+  /** Scheduled surprise reveal (optional; also mirrored inside JSON `content`). */
+  unlockAt: timestamp("unlock_at"),
+  earlyUnlocked: boolean("early_unlocked").notNull().default(false),
+
   createdAt: timestamp("created_at").defaultNow(),
 });
 

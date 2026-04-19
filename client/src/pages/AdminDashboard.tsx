@@ -445,7 +445,7 @@ export default function AdminDashboard() {
             <button
               type="submit"
               disabled={isSubmitting || !file}
-              className="h-11 px-6 rounded-xl bg-black text-white text-sm font-medium shadow-lg hover:scale-105 transition-transform disabled:opacity-60"
+              className="h-11 px-6 rounded-xl bg-primary text-primary-foreground hover:bg-[#e85a8a] text-sm font-medium shadow-lg hover:scale-105 transition-transform disabled:opacity-60"
             >
               {isSubmitting ? "Uploading..." : "Upload Template"}
             </button>
@@ -582,7 +582,7 @@ export default function AdminDashboard() {
                   <button
                     type="button"
                     onClick={() => savePricing(p)}
-                    className="ml-auto rounded-full bg-black px-4 py-2 text-xs font-semibold text-white"
+                    className="ml-auto rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-[#e85a8a]"
                   >
                     Save
                   </button>
@@ -693,7 +693,7 @@ export default function AdminDashboard() {
             <button
               type="button"
               onClick={() => setShowTemplateUpload((v) => !v)}
-              className="rounded-full bg-black text-white px-4 py-2 text-xs font-semibold shadow-sm hover:bg-black/90"
+              className="rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-[#e85a8a]"
             >
               Upload Template
             </button>
@@ -734,7 +734,7 @@ export default function AdminDashboard() {
               <button
                 type="submit"
                 disabled={isSubmitting || !file || !title}
-                className="h-11 px-6 rounded-xl bg-black text-white text-sm font-medium shadow-lg hover:scale-105 transition-transform disabled:opacity-60"
+                className="h-11 px-6 rounded-xl bg-primary text-primary-foreground hover:bg-[#e85a8a] text-sm font-medium shadow-lg hover:scale-105 transition-transform disabled:opacity-60"
               >
                 {isSubmitting ? "Uploading..." : "Upload"}
               </button>
@@ -753,7 +753,7 @@ export default function AdminDashboard() {
                 alt={template.title}
                 className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-60 group-hover:opacity-80 transition-opacity" />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#FFF7FA]/95 via-transparent to-transparent opacity-70 transition-opacity group-hover:opacity-90" />
               <div className="absolute inset-x-0 bottom-0 p-6 flex flex-col items-center justify-end text-center translate-y-4 group-hover:translate-y-0 transition-transform duration-300">
                 <a
                   href={template.imageUrl}

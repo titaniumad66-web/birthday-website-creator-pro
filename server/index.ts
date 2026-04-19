@@ -1,7 +1,10 @@
+/* Loads `.env` from project root (do not duplicate with dotenv.config()). */
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import fs from "fs";
+import net from "net";
 import path from "path";
+import { ensureWebsiteUnlockColumns } from "./ensureDbSchema";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -43,6 +46,9 @@ fs.promises.mkdir(paymentScreensDir, { recursive: true }).catch(() => null);
 app.use("/uploads", express.static("server/uploads"));
 app.use("/assets", express.static("server/uploads/assets"));
 app.use("/payments", express.static("server/uploads/payments"));
+app.use("/ui-libs", express.static("ui-libs"));
+app.use("/script.js", (req, res) => res.sendFile(path.resolve("script.js")));
+app.use("/style.css", (req, res) => res.sendFile(path.resolve("style.css")));
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -54,6 +60,34 @@ export function log(message: string, source = "express") {
 
   console.log(`${formattedTime} [${source}] ${message}`);
 }
+
+const envPort = process.env.PORT ? parseInt(process.env.PORT, 10) : NaN;
+const DEFAULT_PORT =
+  Number.isFinite(envPort) && envPort > 0 ? envPort : 5000;
+
+function findAvailablePort(port: number): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+
+    probe.once("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") {
+        resolve(findAvailablePort(port + 1));
+      } else {
+        reject(err);
+      }
+    });
+
+    probe.once("listening", () => {
+      probe.close(() => resolve(port));
+    });
+
+    probe.listen(port, "0.0.0.0");
+  });
+}
+
+process.on("uncaughtException", (err) => {
+  console.error("Unhandled Error:", err);
+});
 
 if (process.env.NODE_ENV !== "production") {
   app.use((req, res, next) => {
@@ -83,6 +117,16 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 (async () => {
+  try {
+    await ensureWebsiteUnlockColumns();
+    log("Database: websites unlock columns verified (unlock_at, early_unlocked).");
+  } catch (err) {
+    console.error(
+      "[startup] ensureWebsiteUnlockColumns failed — run migrations or SQL manually. Continuing:",
+      err,
+    );
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
@@ -105,9 +149,19 @@ if (process.env.NODE_ENV !== "production") {
     await setupVite(httpServer, app);
   }
 
-  const port = parseInt(process.env.PORT || "5000", 10);
+  let port: number;
+  try {
+    port = await findAvailablePort(DEFAULT_PORT);
+  } catch (err) {
+    console.error("[startup] Could not bind to an available port:", err);
+    process.exit(1);
+  }
+
+  if (port !== DEFAULT_PORT) {
+    log(`Port ${DEFAULT_PORT} busy, switching to ${port}`);
+  }
 
   httpServer.listen(port, "0.0.0.0", () => {
-    log(`serving on port ${port}`);
+    log(`🚀 Server running on port ${port}`);
   });
 })();

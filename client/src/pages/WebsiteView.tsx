@@ -1,6 +1,13 @@
-import { useParams } from "wouter";
-import { useEffect, useRef, useState } from "react";
+import { useParams, useLocation } from "wouter";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { ExternalLink } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
+import { toast } from "@/hooks/use-toast";
+import CountdownLock from "@/components/surprise/CountdownLock";
+import MusicPlayer from "@/components/surprise/MusicPlayer";
+import SurpriseEntryOverlay from "@/components/surprise/SurpriseEntryOverlay";
+import { musicLabelFromContent, resolveMusicSrcFromContent } from "@/lib/surpriseConfig";
 import RomanticTemplate from "@/templates/RomanticTemplate";
 import EmotionalTemplate from "@/templates/EmotionalTemplate";
 import FunnyTemplate from "@/templates/FunnyTemplate";
@@ -20,12 +27,18 @@ type ConfettiParticle = {
 };
 
 type MemoryItem = {
-  image: string;
+  image?: string;
   caption?: string;
   date?: string;
+  templateTitle?: string;
+  /** User-editable chapter title; empty uses templateTitle in published views */
+  title?: string;
+  isFeatured?: boolean;
+  body?: string;
 };
 
 type WebsiteContent = {
+  type?: string;
   name?: string;
   relationship?: string;
   confessionMode?: boolean;
@@ -34,6 +47,10 @@ type WebsiteContent = {
   memories?: MemoryItem[];
   music?: string;
   musicBase64?: string;
+  musicTrack?: string;
+  scheduleSurprise?: boolean;
+  unlockAt?: string;
+  earlyUnlocked?: boolean;
 };
 
 type TeaserStyle = "romantic" | "funny" | "premium";
@@ -124,6 +141,12 @@ function drawConfetti(ctx: CanvasRenderingContext2D, width: number, height: numb
 }
 
 function launchConfetti(durationMs = 1600) {
+  if (
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  ) {
+    return;
+  }
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -133,7 +156,7 @@ function launchConfetti(durationMs = 1600) {
   canvas.style.width = "100%";
   canvas.style.height = "100%";
   canvas.style.pointerEvents = "none";
-  canvas.style.zIndex = "60";
+  canvas.style.zIndex = "70";
   document.body.appendChild(canvas);
 
   const resize = () => {
@@ -145,7 +168,8 @@ function launchConfetti(durationMs = 1600) {
 
   const colors = ["#fb7185", "#fbbf24", "#a78bfa", "#60a5fa", "#34d399"];
   const particles: ConfettiParticle[] = [];
-  const count = 160;
+  const narrow = typeof window !== "undefined" && window.innerWidth < 640;
+  const count = narrow ? 96 : 160;
 
   for (let i = 0; i < count; i++) {
     particles.push({
@@ -209,14 +233,22 @@ function launchConfetti(durationMs = 1600) {
 
 export default function WebsiteView() {
   const { id } = useParams();
+  const [, setLocation] = useLocation();
+  const lockWasShownRef = useRef(false);
   const [data, setData] = useState<WebsiteContent | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [opened, setOpened] = useState(false);
+  /** 0 = entry gate, 1 = gate exiting, 2 = content visible */
+  const [openingStage, setOpeningStage] = useState<0 | 1 | 2>(0);
+  const openGateTimerRef = useRef<number | null>(null);
   const [teaserUrl, setTeaserUrl] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [scheduleGateClear, setScheduleGateClear] = useState(false);
+  /** Bumps after a gesture that should try one-shot music autoplay (tap-to-open unlocked, creator open early). */
+  const [musicAutoplayNonce, setMusicAutoplayNonce] = useState(0);
   const memoriesRef = useRef<HTMLElement | null>(null);
+  const qrWrapRef = useRef<HTMLDivElement | null>(null);
+
+  const opened = openingStage === 2;
 
   const publishedJustNow =
     new URLSearchParams(window.location.search).get("published") === "1";
@@ -229,11 +261,9 @@ export default function WebsiteView() {
 
     try {
       await navigator.clipboard.writeText(shareUrl);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1200);
+      toast({ title: "Link copied!", description: "Paste it anywhere to share your surprise." });
       return;
     } catch {
-      // Fallback for older browsers / insecure contexts.
       const el = document.createElement("textarea");
       el.value = shareUrl;
       el.style.position = "fixed";
@@ -244,25 +274,56 @@ export default function WebsiteView() {
       el.select();
       try {
         document.execCommand("copy");
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1200);
+        toast({ title: "Link copied!", description: "Paste it anywhere to share your surprise." });
       } finally {
         document.body.removeChild(el);
       }
     }
   };
 
-  const musicSrc =
-    data?.musicBase64 && typeof data.musicBase64 === "string"
-      ? data.musicBase64
-      : data?.music
-        ? typeof data.music === "string" && data.music.startsWith("data:")
-          ? data.music
-          : `/music/${data.music}.mp3`
-        : null;
+  const openPreviewNewTab = () => {
+    if (!shareUrl) return;
+    window.open(shareUrl, "_blank", "noopener,noreferrer");
+  };
+
+  const downloadQrPng = () => {
+    if (!shareUrl || !id) return;
+    const canvas = qrWrapRef.current?.querySelector("canvas");
+    if (!canvas) return;
+    try {
+      const url = canvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `aura-surprise-qr-${id}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast({ title: "QR saved", description: "Use it on cards, posters, or stories." });
+    } catch {
+      toast({
+        title: "Could not download QR",
+        description: "Try again or copy the link instead.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const musicSrc = useMemo(() => (data ? resolveMusicSrcFromContent(data) : null), [data]);
+
+  const isScheduleLocked = useMemo(() => {
+    if (!data?.scheduleSurprise || !data.unlockAt) return false;
+    if (data.earlyUnlocked) return false;
+    if (scheduleGateClear) return false;
+    const t = new Date(data.unlockAt).getTime();
+    if (Number.isNaN(t)) return false;
+    return Date.now() < t;
+  }, [data, scheduleGateClear]);
 
   useEffect(() => {
     setLoadError(false);
+    setScheduleGateClear(false);
+    setOpeningStage(0);
+    setMusicAutoplayNonce(0);
     fetch(`/api/websites/${id}`)
       .then((res) => res.json())
       .then((res) => {
@@ -272,7 +333,18 @@ export default function WebsiteView() {
           return;
         }
         try {
-          setData(JSON.parse(res.content));
+          const parsed = JSON.parse(res.content) as WebsiteContent;
+          if (typeof res.earlyUnlocked === "boolean") {
+            parsed.earlyUnlocked = res.earlyUnlocked;
+          }
+          if (res.unlockAt) {
+            parsed.unlockAt = new Date(res.unlockAt).toISOString();
+          }
+          if (parsed.type === "letter" && id) {
+            setLocation(`/letter/${id}`);
+            return;
+          }
+          setData(parsed);
         } catch {
           setData(null);
           setLoadError(true);
@@ -282,24 +354,49 @@ export default function WebsiteView() {
         setData(null);
         setLoadError(true);
       });
-  }, [id]);
+  }, [id, setLocation]);
 
-  const handleOpenSurprise = async () => {
-    setOpened(true);
-    launchConfetti();
-
-    try {
-      if (audioRef.current && musicSrc) {
-        audioRef.current.loop = true;
-        // Ensure src is set before playing (important on iOS).
-        if (audioRef.current.src !== musicSrc) {
-          audioRef.current.src = musicSrc;
-        }
-        await audioRef.current.play();
+  useEffect(() => {
+    return () => {
+      if (openGateTimerRef.current != null) {
+        window.clearTimeout(openGateTimerRef.current);
       }
-    } catch (err) {
-      // Autoplay can still be blocked in some contexts; don't fail the reveal.
+    };
+  }, []);
+
+  const handleOpenSurprise = () => {
+    if (openingStage !== 0) return;
+
+    if (loadError) {
+      setOpeningStage(1);
+      openGateTimerRef.current = window.setTimeout(() => {
+        setOpeningStage(2);
+        openGateTimerRef.current = null;
+      }, 480);
+      return;
     }
+
+    if (!data) return;
+
+    const unlockMs = data.unlockAt ? new Date(data.unlockAt).getTime() : NaN;
+    const locked =
+      Boolean(data.scheduleSurprise && data.unlockAt) &&
+      !data.earlyUnlocked &&
+      !scheduleGateClear &&
+      !Number.isNaN(unlockMs) &&
+      Date.now() < unlockMs;
+
+    if (!locked) {
+      launchConfetti();
+      setMusicAutoplayNonce((n) => n + 1);
+    }
+
+    setOpeningStage(1);
+    const exitMs = locked ? 520 : 640;
+    openGateTimerRef.current = window.setTimeout(() => {
+      setOpeningStage(2);
+      openGateTimerRef.current = null;
+    }, exitMs);
   };
 
   const handleCelebrateNow = () => {
@@ -312,14 +409,12 @@ export default function WebsiteView() {
 
   const handleReplaySurprise = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+    if (openGateTimerRef.current != null) {
+      window.clearTimeout(openGateTimerRef.current);
+      openGateTimerRef.current = null;
     }
-    setOpened(false);
-    window.setTimeout(() => {
-      handleOpenSurprise();
-    }, 120);
+    setOpeningStage(0);
+    setMusicAutoplayNonce(0);
   };
 
   const handleGenerateTeaser = async () => {
@@ -388,7 +483,9 @@ export default function WebsiteView() {
       ctx.restore();
     }
 
-    const memoryImage = data?.memories?.[0]?.image;
+    const memoryImage =
+      data?.memories?.find((m) => m.isFeatured && m.image)?.image ??
+      data?.memories?.find((m) => m.image)?.image;
     if (memoryImage) {
       try {
         const img = await loadImage(memoryImage);
@@ -478,28 +575,21 @@ export default function WebsiteView() {
     minimal: "Minimal",
     pastel: "Soft Pastel",
   };
-  const musicLabels: Record<string, string> = {
-    piano: "Soft Piano Melody",
-    lofi: "Lofi Chill Vibes",
-    acoustic: "Acoustic Sunset",
-    upbeat: "Upbeat Pop",
-  };
-  const musicValue = content?.musicBase64 || content?.music;
-  const musicLabel =
-    typeof musicValue === "string"
-      ? musicValue.startsWith("data:")
-        ? "Custom Upload"
-        : musicLabels[musicValue] ?? musicValue
-      : undefined;
+  const musicLabel = content ? musicLabelFromContent(content) : undefined;
   const themeLabel = content?.theme ? themeLabels[content.theme] ?? content.theme : undefined;
   const actions = content ? (
     <div className="space-y-4">
+      <MusicPlayer
+        src={musicSrc}
+        canInteract={opened && !isScheduleLocked}
+        attemptAutoplayKey={musicAutoplayNonce}
+      />
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={handleGenerateTeaser}
           disabled={isGenerating}
-          className="bg-white text-black px-6 py-3 rounded-full shadow-lg hover:scale-105 transition-transform border border-black/10 disabled:opacity-60"
+          className="rounded-full border border-[#FFD6E7] bg-white px-6 py-3 text-sm font-semibold text-[#1A1A1A] shadow-sm transition-transform hover:scale-[1.02] hover:bg-[#FFF7FA] disabled:opacity-60"
         >
           {isGenerating ? "Generating..." : "Generate Instagram Teaser"}
         </button>
@@ -507,7 +597,7 @@ export default function WebsiteView() {
           <a
             href={teaserUrl}
             download={`birthday-teaser-${id}.png`}
-            className="bg-black text-white px-6 py-3 rounded-full shadow-lg hover:scale-105 transition-transform"
+            className="inline-flex rounded-full bg-gradient-to-r from-[#FF6B9D] to-[#ff8fb3] px-6 py-3 text-sm font-semibold text-white shadow-[0_6px_24px_-4px_rgba(255,107,157,0.35)] transition-transform hover:scale-[1.02]"
           >
             Download Instagram Story
           </a>
@@ -516,31 +606,39 @@ export default function WebsiteView() {
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          onClick={copyLink}
-          className="bg-white text-black px-5 py-2 rounded-full shadow-lg hover:scale-105 transition-transform border border-black/10"
+          onClick={() => void copyLink()}
+          className="rounded-full border border-[#FFD6E7] bg-[#FFE4EC]/50 px-5 py-2.5 text-sm font-medium text-[#1A1A1A] shadow-sm transition-transform hover:bg-[#FFD6E7]/60"
         >
-          {copied ? "Copied!" : "Copy Link"}
+          Copy link
+        </button>
+        <button
+          type="button"
+          onClick={openPreviewNewTab}
+          className="inline-flex items-center gap-1.5 rounded-full border border-[#FFD6E7] bg-white/90 px-5 py-2.5 text-sm font-medium text-[#1A1A1A] shadow-sm transition-transform hover:bg-[#FFF7FA]"
+        >
+          <ExternalLink className="h-3.5 w-3.5 opacity-70" />
+          Preview
         </button>
         <a
           href={whatsappHref}
           target="_blank"
           rel="noreferrer"
-          className="bg-white text-black px-5 py-2 rounded-full shadow-lg hover:scale-105 transition-transform border border-black/10"
+          className="inline-flex rounded-full border border-[#FFD6E7] bg-[#FFE4EC]/50 px-5 py-2.5 text-sm font-medium text-[#1A1A1A] shadow-sm transition-transform hover:bg-[#FFD6E7]/60"
         >
-          Share on WhatsApp
+          WhatsApp
         </a>
         <a
           href={twitterHref}
           target="_blank"
           rel="noreferrer"
-          className="bg-white text-black px-5 py-2 rounded-full shadow-lg hover:scale-105 transition-transform border border-black/10"
+          className="inline-flex rounded-full border border-[#FFD6E7] bg-[#FFE4EC]/50 px-5 py-2.5 text-sm font-medium text-[#1A1A1A] shadow-sm transition-transform hover:bg-[#FFD6E7]/60"
         >
-          Share on Twitter (X)
+          Twitter (X)
         </a>
         <button
           type="button"
           onClick={handleReplaySurprise}
-          className="bg-black text-white px-5 py-2 rounded-full shadow-lg hover:scale-105 transition-transform"
+          className="rounded-full bg-gradient-to-r from-[#FF6B9D] to-[#ff8fb3] px-5 py-2.5 text-sm font-semibold text-white shadow-md transition-transform hover:scale-[1.02]"
         >
           Replay Surprise 🎁
         </button>
@@ -548,68 +646,74 @@ export default function WebsiteView() {
     </div>
   ) : null;
   const qrNode = shareUrl ? (
-    <div className="flex flex-col items-start gap-3">
-      <div className="rounded-2xl bg-white/80 p-4 shadow-lg border border-white/60">
+    <div ref={qrWrapRef} className="flex flex-col items-start gap-3">
+      <div className="rounded-2xl border border-[#FFD6E7] bg-white p-4 shadow-md">
         <QRCodeCanvas value={shareUrl} size={160} includeMargin />
       </div>
-      <p className="text-sm text-gray-600">Scan to open this birthday surprise</p>
+      <button
+        type="button"
+        onClick={downloadQrPng}
+        className="rounded-full border border-[#FFD6E7] bg-white/90 px-4 py-2 text-xs font-semibold text-[#1A1A1A]/80 shadow-sm transition-colors hover:bg-[#FFF7FA]"
+      >
+        Download QR
+      </button>
+      <p className="text-sm text-[#1A1A1A]/55">Scan to open this birthday surprise</p>
     </div>
+  ) : null;
+
+  if (opened && content && id && content.scheduleSurprise && content.unlockAt && isScheduleLocked) {
+    lockWasShownRef.current = true;
+  }
+
+  const surpriseMain = content ? (
+    <TemplateComponent
+      name={content.name}
+      relationship={content.relationship}
+      confessionMode={Boolean(content.confessionMode)}
+      message={content.message}
+      memories={content.memories}
+      themeLabel={themeLabel}
+      musicLabel={musicLabel}
+      actions={actions}
+      qr={qrNode}
+      memoryRef={memoriesRef}
+      onCelebrate={handleCelebrateNow}
+      sequentialReveal={Boolean(opened && !isScheduleLocked)}
+    />
   ) : null;
 
   return (
     <div
-      className={`min-h-screen bg-[#f5f2ef] text-gray-800 ${
+      className={`min-h-screen bg-gradient-to-b from-[#FFF7FA] via-[#FFE4EC]/40 to-[#FFF7FA] text-[#1A1A1A] ${
         opened ? "overflow-auto" : "overflow-hidden"
       }`}
     >
-      {/* Surprise gate */}
-      {!opened && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-6">
-          <div className="absolute inset-0 bg-gradient-to-br from-rose-100 via-pink-50 to-orange-100" />
-          <div className="absolute top-20 left-10 w-40 h-40 bg-pink-200 rounded-full blur-3xl opacity-40" />
-          <div className="absolute bottom-20 right-10 w-60 h-60 bg-orange-200 rounded-full blur-3xl opacity-40" />
-
-          <div className="relative w-full max-w-xl text-center">
-            <div className="text-sm font-semibold tracking-wide text-gray-600">
-              Birthday Surprise
-            </div>
-            <h1 className="mt-4 text-4xl md:text-5xl font-serif leading-tight break-words">
-              Tap to Open Your Surprise
-            </h1>
-            <p className="mt-4 text-gray-600">
-              A little moment made just for you.
-            </p>
-            <div className="mt-10 flex justify-center">
-              <button
-                type="button"
-                onClick={handleOpenSurprise}
-                className="bg-black text-white px-8 py-4 rounded-full shadow-lg hover:scale-105 transition-transform min-h-12 w-full sm:w-auto"
-              >
-                Tap to Open Your Surprise
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <SurpriseEntryOverlay
+        show={openingStage < 2}
+        exiting={openingStage === 1}
+        readyToOpen={Boolean(data) || loadError}
+        loadError={loadError}
+        onTapOpen={handleOpenSurprise}
+      />
 
       {opened && publishedJustNow && id && (
         <div className="fixed left-1/2 top-6 z-50 w-[min(720px,calc(100%-2rem))] -translate-x-1/2">
-          <div className="rounded-3xl border border-white/50 bg-white/70 p-4 shadow-xl backdrop-blur-md">
+          <div className="rounded-3xl border border-[#FFD6E7] bg-white/90 p-4 shadow-lg backdrop-blur-md">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div className="min-w-0">
-                <div className="text-sm font-semibold">Website Published</div>
-                <div className="mt-1 truncate text-sm text-gray-600">
+                <div className="text-sm font-semibold text-[#1A1A1A]">Website Published</div>
+                <div className="mt-1 truncate text-sm text-[#1A1A1A]/60">
                   <span className="font-mono">{sharePath}</span>
                 </div>
               </div>
 
               <div className="flex gap-3">
                 <button
-                  onClick={copyLink}
+                  onClick={() => void copyLink()}
                   type="button"
-                  className="bg-black text-white px-5 py-2 rounded-full shadow-lg hover:scale-105 transition-transform"
+                  className="bg-primary text-primary-foreground hover:bg-[#e85a8a] px-5 py-2 rounded-full shadow-lg hover:scale-105 transition-transform"
                 >
-                  {copied ? "Copied!" : "Copy Link"}
+                  Copy link
                 </button>
               </div>
             </div>
@@ -628,29 +732,52 @@ export default function WebsiteView() {
             <div className="h-screen flex items-center justify-center text-xl">
               This birthday surprise is unavailable right now.
             </div>
+          ) : content && id && content.scheduleSurprise && content.unlockAt ? (
+            <AnimatePresence mode="wait">
+              {isScheduleLocked ? (
+                <motion.div
+                  key="countdown-lock"
+                  className="w-full"
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  <CountdownLock
+                    websiteId={id}
+                    unlockAt={content.unlockAt!}
+                    recipientName={content.name}
+                    onUnlocked={() => setScheduleGateClear(true)}
+                    onEarlyOpened={() => {
+                      setScheduleGateClear(true);
+                      setData((prev) => (prev ? { ...prev, earlyUnlocked: true } : null));
+                      setMusicAutoplayNonce((n) => n + 1);
+                    }}
+                  />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="scheduled-reveal"
+                  className="w-full"
+                  initial={
+                    lockWasShownRef.current ? { opacity: 0, scale: 0.98 } : { opacity: 1, scale: 1 }
+                  }
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  {surpriseMain}
+                </motion.div>
+              )}
+            </AnimatePresence>
           ) : (
-            content && (
-              <TemplateComponent
-                name={content.name}
-                relationship={content.relationship}
-                confessionMode={Boolean(content.confessionMode)}
-                message={content.message}
-                memories={content.memories}
-                themeLabel={themeLabel}
-                musicLabel={musicLabel}
-                actions={actions}
-                qr={qrNode}
-                memoryRef={memoriesRef}
-                onCelebrate={handleCelebrateNow}
-              />
-            )
+            <motion.div
+              key="surprise-reveal"
+              initial={{ opacity: 0, scale: 0.98, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+            >
+              {surpriseMain}
+            </motion.div>
           )}
         </>
-      )}
-
-      {/* Audio is prepared immediately, but only played on user tap */}
-      {musicSrc && (
-        <audio ref={audioRef} preload="auto" src={musicSrc} />
       )}
 
     </div>

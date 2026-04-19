@@ -16,6 +16,8 @@ type AuraAIContext = {
   message?: string;
 };
 
+const AI_UNAVAILABLE = "Sorry, Aura AI is temporarily unavailable.";
+
 const starterMessages: Message[] = [
   {
     id: "welcome",
@@ -77,7 +79,7 @@ export default function AuraAI() {
     setIsSending(true);
 
     try {
-      const res = await fetch("/api/aura-ai/chat", {
+      const res = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -86,18 +88,19 @@ export default function AuraAI() {
           history: messages.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
-      if (!res.ok) {
-        throw new Error("Failed to get response");
-      }
-      const data = (await res.json()) as { reply?: string };
+      const data = (await res.json().catch(() => ({}))) as { reply?: string };
+      const reply =
+        typeof data.reply === "string" && data.reply.length > 0
+          ? data.reply
+          : !res.ok
+            ? AI_UNAVAILABLE
+            : "I’m here to help with themes, messages, and builder guidance. Ask me anything.";
       setMessages((prev) => [
         ...prev,
         {
           id: `${Date.now()}-${Math.random()}`,
           role: "assistant",
-          content:
-            data.reply ||
-            "I’m here to help with themes, messages, and builder guidance. Ask me anything.",
+          content: reply,
         },
       ]);
     } catch {
@@ -106,7 +109,7 @@ export default function AuraAI() {
         {
           id: `${Date.now()}-${Math.random()}`,
           role: "assistant",
-          content: "I hit a snag. Please try again in a moment.",
+          content: AI_UNAVAILABLE,
         },
       ]);
     } finally {

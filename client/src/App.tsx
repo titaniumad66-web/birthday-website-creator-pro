@@ -1,4 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   clearAuthToken,
   getAuthPayload,
@@ -13,12 +14,11 @@ import { JSX, useEffect } from "react";
 import PreviewWebsite from "./pages/PreviewWebsite";
 import Home from "@/pages/Home";
 import CreateWebsite from "@/pages/CreateWebsite";
-import AIDynamicWebsites from "@/pages/AIDynamicWebsites";
-import AIPreviewWebsite from "@/pages/AIPreviewWebsite";
 import Login from "@/pages/Login";
 import AdminDashboard from "@/pages/AdminDashboard";
 import AllTemplates from "@/pages/AllTemplates";
-import WebsiteView from "@/pages/WebsiteView"; // ✅ ADD THIS
+import WebsiteView from "@/pages/WebsiteView";
+import LetterView from "@/pages/LetterView";
 import NotFound from "@/pages/not-found";
 import AuraAI from "@/components/AuraAI";
 import Dashboard from "@/pages/Dashboard";
@@ -69,8 +69,6 @@ function Router() {
       <Route path="/preview" component={PreviewWebsite} />
       <Route path="/preview/:id" component={PreviewWebsite} />
       <Route path="/templates" component={AllTemplates} />
-      <Route path="/ai-websites" component={AIDynamicWebsites} />
-      <Route path="/ai-preview" component={AIPreviewWebsite} />
 
       <Route path="/create">
         {() => <ProtectedRoute component={CreateWebsite} />}
@@ -85,6 +83,8 @@ function Router() {
       </Route>
 
       <Route path="/pay" component={Payment} />
+
+      <Route path="/letter/:id" component={LetterView} />
 
       {/* ✅ PUBLIC WEBSITE ROUTE */}
       <Route path="/w/:id" component={WebsiteView} />
@@ -117,10 +117,21 @@ function App(): JSX.Element {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <div className="min-h-screen flex flex-col bg-background text-foreground">
+        <div className="relative min-h-screen flex flex-col bg-background text-foreground">
           <Navbar />
-          <main className="flex-1 pt-20 md:pt-24">
-            <Router />
+          <main className="flex flex-1 flex-col pt-20 md:pt-24">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={location}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1] }}
+                className="flex flex-1 flex-col"
+              >
+                <Router />
+              </motion.div>
+            </AnimatePresence>
           </main>
         </div>
         {showAuraAi ? <AuraAI /> : null}

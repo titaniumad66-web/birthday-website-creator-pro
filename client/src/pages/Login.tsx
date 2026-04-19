@@ -60,9 +60,10 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-pink-100 flex items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md">
-        <Card className="border-white/60 bg-white/80 backdrop-blur-xl shadow-2xl">
+    <div className="aura-page-gradient relative flex min-h-screen items-center justify-center px-4 py-12">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-10%,rgba(255,214,231,0.5),transparent_55%)]" />
+      <div className="relative w-full max-w-md">
+        <Card className="border-[#FFD6E7]/90 bg-white/90 shadow-[0_20px_60px_-24px_rgba(255,107,157,0.15)] backdrop-blur-xl">
           <CardHeader className="text-center space-y-2">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary text-xl font-semibold">
               A

@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { ensureWebsiteUnlockColumns, isMissingWebsiteColumnError } from "./ensureDbSchema";
 import { templates, users, websites, siteImages, purchases, pricing } from "@shared/schema";
 import { desc, eq, and, count, sql } from "drizzle-orm";
 import {
@@ -20,6 +21,17 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
 
   createWebsite(data: any): Promise<any>;
+  updateWebsite(
+    id: string,
+    data: Partial<{
+      content: string;
+      unlockAt: Date | null;
+      earlyUnlocked: boolean;
+      title: string;
+      theme: string;
+    }>,
+  ): Promise<void>;
+  deleteWebsite(id: string, userId: string): Promise<boolean>;
   getUserWebsites(userId: string): Promise<any[]>;
   getWebsiteById(id: string): Promise<any | undefined>;
   getTemplates(): Promise<Template[]>;
@@ -92,32 +104,105 @@ export class DatabaseStorage implements IStorage {
 
   // CREATE WEBSITE
   async createWebsite(data: any): Promise<any> {
-    const result = await db
-      .insert(websites)
-      .values(data)
-      .returning();
+    const insertRow = async (row: Record<string, unknown>) => {
+      const result = await db.insert(websites).values(row as any).returning();
+      return result[0];
+    };
 
-    return result[0];
+    try {
+      return await insertRow(data);
+    } catch (e) {
+      if (!isMissingWebsiteColumnError(e)) throw e;
+      console.warn("[storage] createWebsite: missing unlock columns — repairing schema and retrying");
+      await ensureWebsiteUnlockColumns();
+      try {
+        return await insertRow(data);
+      } catch (e2) {
+        if (!isMissingWebsiteColumnError(e2)) throw e2;
+        console.warn("[storage] createWebsite: fallback insert without unlock_at / early_unlocked");
+        const { unlockAt: _u, earlyUnlocked: _e, ...minimal } = data as Record<string, unknown>;
+        return await insertRow({
+          userId: minimal.userId,
+          title: minimal.title,
+          theme: minimal.theme,
+          content: minimal.content,
+        });
+      }
+    }
+  }
+
+  async updateWebsite(
+    id: string,
+    data: Partial<{
+      content: string;
+      unlockAt: Date | null;
+      earlyUnlocked: boolean;
+      title: string;
+      theme: string;
+    }>,
+  ): Promise<void> {
+    const apply = async (payload: typeof data) => {
+      await db.update(websites).set(payload).where(eq(websites.id, id));
+    };
+
+    try {
+      await apply(data);
+    } catch (e) {
+      if (!isMissingWebsiteColumnError(e)) throw e;
+      console.warn("[storage] updateWebsite: missing unlock columns — repairing schema and retrying");
+      await ensureWebsiteUnlockColumns();
+      try {
+        await apply(data);
+      } catch (e2) {
+        if (!isMissingWebsiteColumnError(e2)) throw e2;
+        const { unlockAt: _u, earlyUnlocked: _e, ...rest } = data;
+        console.warn("[storage] updateWebsite: fallback without unlock columns");
+        await apply(rest);
+      }
+    }
+  }
+
+  async deleteWebsite(id: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(websites)
+      .where(and(eq(websites.id, id), eq(websites.userId, userId)))
+      .returning({ id: websites.id });
+    return result.length > 0;
   }
 
   // GET USER WEBSITES
   async getUserWebsites(userId: string): Promise<any[]> {
-    const result = await db
-      .select()
-      .from(websites)
-      .where(eq(websites.userId, userId));
+    const query = () =>
+      db
+        .select()
+        .from(websites)
+        .where(eq(websites.userId, userId))
+        .orderBy(desc(websites.createdAt));
 
-    return result;
+    try {
+      return await query();
+    } catch (e) {
+      if (!isMissingWebsiteColumnError(e)) throw e;
+      console.warn("[storage] getUserWebsites: missing unlock columns — repairing schema and retrying");
+      await ensureWebsiteUnlockColumns();
+      return await query();
+    }
   }
 
   // GET WEBSITE BY ID
   async getWebsiteById(id: string): Promise<any | undefined> {
-    const result = await db
-      .select()
-      .from(websites)
-      .where(eq(websites.id, id));
+    const query = () => db.select().from(websites).where(eq(websites.id, id));
 
-    return result[0];
+    try {
+      const result = await query();
+      return result[0];
+    } catch (e) {
+      if (!isMissingWebsiteColumnError(e)) throw e;
+      console.warn("[storage] getWebsiteById: missing unlock columns — repairing schema and retrying");
+      await ensureWebsiteUnlockColumns();
+      const result = await query();
+      return result[0];
+    }
   }
 
   async getTemplates(): Promise<Template[]> {
@@ -189,7 +274,7 @@ export class DatabaseStorage implements IStorage {
   async getUserWebsiteCount(userId: string): Promise<number> {
     const result = await db.select({ c: count() }).from(websites).where(eq(websites.userId, userId));
     return Number(result[0]?.c ?? 0);
-    }
+  }
 
   async getApprovedPurchaseCount(userId: string, productType: string): Promise<number> {
     const result = await db

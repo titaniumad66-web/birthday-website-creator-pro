@@ -9,11 +9,37 @@ import path from "path";
 import fs from "fs";
 import { nanoid } from "nanoid";
 import { generateBirthdayContent } from "./aiService";
+import { auraAIChatHandler } from "./auraAIChatHandler";
+import { sendOgDefaultPng } from "./surpriseOg";
+
+function extractUnlockFromContent(content: string): {
+  unlockAt: Date | null;
+  earlyUnlocked: boolean;
+} {
+  try {
+    const c = JSON.parse(content) as {
+      scheduleSurprise?: boolean;
+      unlockAt?: string;
+      earlyUnlocked?: boolean;
+    };
+    let unlockAt: Date | null = null;
+    if (c.scheduleSurprise && typeof c.unlockAt === "string") {
+      const d = new Date(c.unlockAt);
+      if (!Number.isNaN(d.getTime())) unlockAt = d;
+    }
+    return { unlockAt, earlyUnlocked: Boolean(c.earlyUnlocked) };
+  } catch {
+    return { unlockAt: null, earlyUnlocked: false };
+  }
+}
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  /** OG fallback image — register before SPA catch-alls so crawlers get a real URL. */
+  app.get("/og-share-default.png", sendOgDefaultPng);
+
   const templatesDir = path.resolve("server", "uploads", "templates");
   const assetsDir = path.resolve("server", "uploads", "assets");
   const paymentScreensDir = path.resolve("server", "uploads", "payments");
@@ -215,11 +241,16 @@ export async function registerRoutes(
       // TEMPORARY: Monetization disabled — allow all creations without gating
       // Original checks preserved for future re-enable.
 
+      const { unlockAt, earlyUnlocked } =
+        typeof content === "string" ? extractUnlockFromContent(content) : { unlockAt: null, earlyUnlocked: false };
+
       const website = await storage.createWebsite({
         userId: req.user.id,
         title,
         theme,
         content,
+        unlockAt,
+        earlyUnlocked,
       });
 
       // Free usage tracking disabled during monetization pause
@@ -227,6 +258,13 @@ export async function registerRoutes(
       return res.status(201).json(website);
     } catch (error) {
       console.error("Create Website Error:", error);
+      const msg = error instanceof Error ? error.message : String(error);
+      if (/unlock_at|early_unlocked|column .* does not exist/i.test(msg)) {
+        return res.status(503).json({
+          message:
+            "Database is missing scheduled-surprise columns. The server tried to repair them automatically; retry in a moment or run migrations (0003_website_unlock.sql).",
+        });
+      }
       return res.status(500).json({ message: "Server error" });
     }
   });
@@ -240,6 +278,79 @@ export async function registerRoutes(
       return res.json(websites);
     } catch (error) {
       console.error("Fetch Websites Error:", error);
+      const msg = error instanceof Error ? error.message : String(error);
+      if (/unlock_at|early_unlocked|column .* does not exist/i.test(msg)) {
+        return res.status(503).json({
+          message: "Database schema is updating. Please refresh shortly.",
+        });
+      }
+      return res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  // =========================
+  // UPDATE WEBSITE (creator)
+  // =========================
+  app.patch("/api/websites/:id", verifyToken, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const site = await storage.getWebsiteById(id);
+      if (!site) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (site.userId !== req.user.id) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const title =
+        typeof req.body?.title === "string"
+          ? req.body.title.trim() || site.title
+          : site.title;
+      const theme =
+        typeof req.body?.theme === "string"
+          ? req.body.theme.trim() || site.theme
+          : site.theme;
+      const content =
+        typeof req.body?.content === "string" ? req.body.content : site.content;
+
+      const { unlockAt, earlyUnlocked } = extractUnlockFromContent(content);
+
+      await storage.updateWebsite(id, {
+        title,
+        theme,
+        content,
+        unlockAt,
+        earlyUnlocked,
+      });
+
+      const updated = await storage.getWebsiteById(id);
+      return res.json(updated);
+    } catch (error) {
+      console.error("Update Website Error:", error);
+      const msg = error instanceof Error ? error.message : String(error);
+      if (/unlock_at|early_unlocked|column .* does not exist/i.test(msg)) {
+        return res.status(503).json({
+          message:
+            "Database schema mismatch for scheduled surprises. Retry shortly or apply migration 0003_website_unlock.sql.",
+        });
+      }
+      return res.status(500).json({ message: "Server error" });
+    }
+  });
+
+  // =========================
+  // DELETE WEBSITE (creator)
+  // =========================
+  app.delete("/api/websites/:id", verifyToken, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const deleted = await storage.deleteWebsite(id, req.user.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      return res.json({ ok: true });
+    } catch (error) {
+      console.error("Delete Website Error:", error);
       return res.status(500).json({ message: "Server error" });
     }
   });
@@ -483,86 +594,10 @@ export async function registerRoutes(
   });
 
   // =========================
-  // AURA AI CHAT (REAL API)
+  // AURA AI CHAT (Gemini preferred, OpenAI fallback — keys server-side only)
   // =========================
-  app.post("/api/aura-ai/chat", async (req, res) => {
-    try {
-      const apiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY;
-      if (!apiKey) {
-        console.error("Aura AI Chat Error: missing OPENAI_API_KEY");
-        return res.json({ reply: "Sorry, Aura AI is temporarily unavailable." });
-      }
-      const userMessage = typeof req.body?.message === "string" ? req.body.message.trim() : "";
-      const history = Array.isArray(req.body?.history) ? req.body.history : [];
-      const ctx = req.body?.context && typeof req.body.context === "object" ? req.body.context : null;
-      if (!userMessage) {
-        return res.status(400).json({ reply: "Please enter a message to chat with Aura AI." });
-      }
-
-      const systemPrompt =
-        "You are Aura AI, the assistant inside the Aura platform. Aura allows users to create AI-powered birthday websites. Users can generate websites, choose templates, customize sections, and share links. Help users with creating websites, choosing templates, editing content, improving birthday messages, fixing design issues, and suggesting improvements. Be friendly, clear, and guide step-by-step.";
-
-      const contextLines = [];
-      if (ctx && typeof ctx === "object") {
-        const name = typeof ctx.name === "string" ? ctx.name : undefined;
-        const relationship = typeof ctx.relationship === "string" ? ctx.relationship : undefined;
-        const theme = typeof ctx.theme === "string" ? ctx.theme : undefined;
-        const confessionMode =
-          typeof ctx.confessionMode === "boolean" ? (ctx.confessionMode ? "on" : "off") : undefined;
-        const memoriesCount =
-          typeof ctx.memoriesCount === "number" ? String(ctx.memoriesCount) : undefined;
-        const message = typeof ctx.message === "string" ? ctx.message : undefined;
-        if (name) contextLines.push(`Recipient name: ${name}`);
-        if (relationship) contextLines.push(`Relationship: ${relationship}`);
-        if (theme) contextLines.push(`Selected theme: ${theme}`);
-        if (confessionMode) contextLines.push(`Confession mode: ${confessionMode}`);
-        if (memoriesCount) contextLines.push(`Memories count: ${memoriesCount}`);
-        if (message && message.length > 0) contextLines.push(`Draft message: ${message}`);
-      }
-      const systemWithContext =
-        contextLines.length > 0
-          ? `${systemPrompt}\n\nContext:\n${contextLines.map((l) => `- ${l}`).join("\n")}`
-          : systemPrompt;
-
-      const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
-        { role: "system", content: systemWithContext },
-      ];
-      for (const m of history) {
-        const role = m?.role === "assistant" ? "assistant" : m?.role === "user" ? "user" : null;
-        const content = typeof m?.content === "string" ? m.content : null;
-        if (role && content) {
-          messages.push({ role, content });
-        }
-      }
-      messages.push({ role: "user", content: userMessage });
-
-      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-3.5-turbo",
-          messages,
-          temperature: 0.7,
-        }),
-      });
-      if (!resp.ok) {
-        const errText = await resp.text().catch(() => "");
-        console.error("Aura AI API Error:", resp.status, errText);
-        return res.json({ reply: "Sorry, Aura AI is temporarily unavailable." });
-      }
-      const data = await resp.json();
-      const reply =
-        data?.choices?.[0]?.message?.content ||
-        "I’m here to help with themes, messages, and builder guidance. Ask me anything.";
-      return res.json({ reply });
-    } catch (error) {
-      console.error("Aura AI Chat Error:", error);
-      return res.json({ reply: "Sorry, Aura AI is temporarily unavailable." });
-    }
-  });
+  app.post("/api/ai", auraAIChatHandler);
+  app.post("/api/aura-ai/chat", auraAIChatHandler);
   // =========================
 // GET WEBSITE BY ID (PUBLIC)
 // =========================
@@ -579,9 +614,52 @@ app.get("/api/websites/:id", async (req, res) => {
     return res.json(website);
   } catch (error) {
     console.error("Fetch Website Error:", error);
+    const msg = error instanceof Error ? error.message : String(error);
+    if (/unlock_at|early_unlocked|column .* does not exist/i.test(msg)) {
+      return res.status(503).json({
+        message:
+          "Database schema is updating. Please refresh in a moment.",
+      });
+    }
     return res.status(500).json({ message: "Server error" });
   }
 });
+
+  // Creator: skip scheduled lock (early reveal)
+  app.patch("/api/websites/:id/unlock-now", verifyToken, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const site = await storage.getWebsiteById(id);
+      if (!site) {
+        return res.status(404).json({ message: "Website not found" });
+      }
+      if (site.userId !== req.user.id) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(site.content) as Record<string, unknown>;
+      } catch {
+        return res.status(500).json({ message: "Invalid website content" });
+      }
+      parsed.earlyUnlocked = true;
+      const nextContent = JSON.stringify(parsed);
+      await storage.updateWebsite(id, {
+        content: nextContent,
+        earlyUnlocked: true,
+      });
+      return res.json({ ok: true });
+    } catch (error) {
+      console.error("Unlock website error:", error);
+      const msg = error instanceof Error ? error.message : String(error);
+      if (/unlock_at|early_unlocked|column .* does not exist/i.test(msg)) {
+        return res.status(503).json({
+          message: "Database is missing unlock columns. Retry after the server applies schema updates.",
+        });
+      }
+      return res.status(500).json({ message: "Server error" });
+    }
+  });
 
   // =========================
   // SITE IMAGES (PUBLIC FETCH)
