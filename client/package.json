@@ -39,7 +39,6 @@
     "@radix-ui/react-toggle-group": "^1.1.11",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tanstack/react-query": "^5.60.5",
-    "@types/three": "^0.183.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -68,7 +67,13 @@
     "vaul": "^1.1.2",
     "wouter": "^3.3.5",
     "zod": "^3.25.76",
-    "zod-validation-error": "^3.4.0"
+    "zod-validation-error": "^3.4.0",
+
+    // 🔥 IMPORTANT FIXES BELOW
+    "vite": "^7.1.9",
+    "@vitejs/plugin-react": "^5.0.4",
+    "postcss": "^8.5.10",
+    "autoprefixer": "^10.5.0"
   },
   "devDependencies": {
     "@replit/vite-plugin-cartographer": "^0.4.4",
@@ -79,11 +84,7 @@
     "@types/node": "^20.19.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "@vitejs/plugin-react": "^5.0.4",
-    "autoprefixer": "^10.5.0",
     "esbuild": "^0.25.0",
-    "postcss": "^8.5.10",
-    "typescript": "5.6.3",
-    "vite": "^7.1.9"
+    "typescript": "5.6.3"
   }
 }
