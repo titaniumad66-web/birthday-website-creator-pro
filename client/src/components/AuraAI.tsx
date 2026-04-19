@@ -1,4 +1,4 @@
-import { apiUrl } from "@/lib/api";
+import { apiUrl } from "../lib/api";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Sparkles, Send } from "lucide-react";
 
@@ -193,3 +193,4 @@ export default function AuraAI() {
     </div>
   );
 }
+

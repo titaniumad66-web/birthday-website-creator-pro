@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { ReactNode } from "react";
-import { resolveBackendMediaUrl } from "@/lib/api";
+import { resolveBackendMediaUrl } from "../lib/api";
 import { getPublishedTheme, type PublishedThemeId } from "./publishedSiteThemes";
 
 function letterThemeSafe(themeId: string | undefined): PublishedThemeId {
@@ -136,3 +136,4 @@ export default function LetterLayout({
     </div>
   );
 }
+

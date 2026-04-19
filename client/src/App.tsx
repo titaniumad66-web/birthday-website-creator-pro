@@ -7,22 +7,22 @@ import {
   queryClient,
 } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "@/components/ui/toaster";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { Navbar } from "@/components/layout/Navbar";
+import { Toaster } from "./components/ui/toaster";
+import { TooltipProvider } from "./components/ui/tooltip";
+import { Navbar } from "./components/layout/Navbar";
 import { JSX, useEffect } from "react";
 import PreviewWebsite from "./pages/PreviewWebsite";
-import Home from "@/pages/Home";
-import CreateWebsite from "@/pages/CreateWebsite";
-import Login from "@/pages/Login";
-import AdminDashboard from "@/pages/AdminDashboard";
-import AllTemplates from "@/pages/AllTemplates";
-import WebsiteView from "@/pages/WebsiteView";
-import LetterView from "@/pages/LetterView";
-import NotFound from "@/pages/not-found";
-import AuraAI from "@/components/AuraAI";
-import Dashboard from "@/pages/Dashboard";
-import Payment from "@/pages/Payment";
+import Home from "./pages/Home";
+import CreateWebsite from "./pages/CreateWebsite";
+import Login from "./pages/Login";
+import AdminDashboard from "./pages/AdminDashboard";
+import AllTemplates from "./pages/AllTemplates";
+import WebsiteView from "./pages/WebsiteView";
+import LetterView from "./pages/LetterView";
+import NotFound from "./pages/not-found";
+import AuraAI from "./components/AuraAI";
+import Dashboard from "./pages/Dashboard";
+import Payment from "./pages/Payment";
 
 // 🔒 Protected Route (Logged in users only)
 function ProtectedRoute({ component: Component }: any) {
@@ -142,3 +142,4 @@ function App(): JSX.Element {
 }
 
 export default App;
+

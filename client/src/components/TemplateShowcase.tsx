@@ -1,9 +1,9 @@
 import React, { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 
-import classicImg from "@/assets/images/story/image 1.jpg";
-import timelineImg from "@/assets/images/story/image 2.jpg";
-import surpriseImg from "@/assets/images/story/image 3.jpg";
+import classicImg from "../assets/images/story/image 1.jpg";
+import timelineImg from "../assets/images/story/image 2.jpg";
+import surpriseImg from "../assets/images/story/image 3.jpg";
 
 declare global {
   interface Window {
@@ -168,3 +168,4 @@ const TemplateShowcase: React.FC = () => {
 };
 
 export default TemplateShowcase;
+

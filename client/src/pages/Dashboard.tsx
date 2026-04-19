@@ -2,15 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { Plus, Loader2 } from "lucide-react";
-import { apiUrl } from "@/lib/api";
-import { getValidAuthToken } from "@/lib/queryClient";
-import DashboardCard, { type DashboardCardItem } from "@/components/dashboard/DashboardCard";
+import { apiUrl } from "../lib/api";
+import { getValidAuthToken } from "../lib/queryClient";
+import DashboardCard, { type DashboardCardItem } from "../components/dashboard/DashboardCard";
 import {
   formatCreatedAt,
   inferCreationKind,
   previewImageFromContent,
   relationshipFromContent,
-} from "@/lib/dashboardUtils";
+} from "../lib/dashboardUtils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,7 +20,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+} from "../components/ui/alert-dialog";
 
 type ApiWebsite = {
   id: string;
@@ -245,3 +245,4 @@ export default function Dashboard() {
     </div>
   );
 }
+

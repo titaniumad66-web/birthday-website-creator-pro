@@ -1,6 +1,6 @@
 import React from "react";
 import { motion, useReducedMotion, type PanInfo } from "framer-motion";
-import { cn } from "@/lib/utils";
+import { cn } from "../../lib/utils";
 
 interface SmoothButtonProps
   extends Omit<
@@ -71,3 +71,4 @@ const SmoothButton: React.FC<SmoothButtonProps> = ({
 };
 
 export default SmoothButton;
+

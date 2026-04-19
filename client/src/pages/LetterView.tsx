@@ -1,11 +1,11 @@
 import { useParams } from "wouter";
 import { useEffect, useMemo, useState } from "react";
 import { QRCodeCanvas } from "qrcode.react";
-import { apiUrl } from "@/lib/api";
-import CountdownLock from "@/components/surprise/CountdownLock";
-import MusicPlayer from "@/components/surprise/MusicPlayer";
-import { musicLabelFromContent, resolveMusicSrcFromContent } from "@/lib/surpriseConfig";
-import LetterLayout from "@/templates/LetterLayout";
+import { apiUrl } from "../lib/api";
+import CountdownLock from "../components/surprise/CountdownLock";
+import MusicPlayer from "../components/surprise/MusicPlayer";
+import { musicLabelFromContent, resolveMusicSrcFromContent } from "../lib/surpriseConfig";
+import LetterLayout from "../templates/LetterLayout";
 
 export type LetterContent = {
   type: "letter";
@@ -222,3 +222,4 @@ export default function LetterView() {
     />
   );
 }
+

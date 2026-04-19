@@ -1,15 +1,15 @@
 import { useRef } from "react";
-import { musicLabelFromContent, resolveMusicSrcFromContent } from "@/lib/surpriseConfig";
-import LetterLayout from "@/templates/LetterLayout";
-import MusicPlayer from "@/components/surprise/MusicPlayer";
-import story1 from "@/assets/images/story-1.png";
-import story2 from "@/assets/images/story-2.png";
-import RomanticTemplate from "@/templates/RomanticTemplate";
-import EmotionalTemplate from "@/templates/EmotionalTemplate";
-import FunnyTemplate from "@/templates/FunnyTemplate";
-import RoyalTemplate from "@/templates/RoyalTemplate";
-import MinimalTemplate from "@/templates/MinimalTemplate";
-import PastelTemplate from "@/templates/PastelTemplate";
+import { musicLabelFromContent, resolveMusicSrcFromContent } from "../lib/surpriseConfig";
+import LetterLayout from "../templates/LetterLayout";
+import MusicPlayer from "../components/surprise/MusicPlayer";
+import story1 from "../assets/images/story-1.png";
+import story2 from "../assets/images/story-2.png";
+import RomanticTemplate from "../templates/RomanticTemplate";
+import EmotionalTemplate from "../templates/EmotionalTemplate";
+import FunnyTemplate from "../templates/FunnyTemplate";
+import RoyalTemplate from "../templates/RoyalTemplate";
+import MinimalTemplate from "../templates/MinimalTemplate";
+import PastelTemplate from "../templates/PastelTemplate";
 
 type ThemeId = "romantic" | "pastel" | "royal" | "minimal" | "emotional" | "funny";
 
@@ -221,3 +221,4 @@ export default function PreviewWebsite() {
     />
   );
 }
+

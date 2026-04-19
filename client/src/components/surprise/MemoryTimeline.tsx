@@ -1,9 +1,9 @@
 import { motion } from "framer-motion";
-import { resolveBackendMediaUrl } from "@/lib/api";
+import { resolveBackendMediaUrl } from "../../lib/api";
 import {
   memoryChapterHeading,
   type PublishedMemoryItem,
-} from "@/templates/publishedSiteThemes";
+} from "../../templates/publishedSiteThemes";
 
 type MemoryTimelineProps = {
   memories: PublishedMemoryItem[];
@@ -107,3 +107,4 @@ export default function MemoryTimeline({
     </div>
   );
 }
+

@@ -3,18 +3,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ExternalLink } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
-import { apiUrl } from "@/lib/api";
-import { toast } from "@/hooks/use-toast";
-import CountdownLock from "@/components/surprise/CountdownLock";
-import MusicPlayer from "@/components/surprise/MusicPlayer";
-import SurpriseEntryOverlay from "@/components/surprise/SurpriseEntryOverlay";
-import { musicLabelFromContent, resolveMusicSrcFromContent } from "@/lib/surpriseConfig";
-import RomanticTemplate from "@/templates/RomanticTemplate";
-import EmotionalTemplate from "@/templates/EmotionalTemplate";
-import FunnyTemplate from "@/templates/FunnyTemplate";
-import RoyalTemplate from "@/templates/RoyalTemplate";
-import MinimalTemplate from "@/templates/MinimalTemplate";
-import PastelTemplate from "@/templates/PastelTemplate";
+import { apiUrl } from "../lib/api";
+import { toast } from "../hooks/use-toast";
+import CountdownLock from "../components/surprise/CountdownLock";
+import MusicPlayer from "../components/surprise/MusicPlayer";
+import SurpriseEntryOverlay from "../components/surprise/SurpriseEntryOverlay";
+import { musicLabelFromContent, resolveMusicSrcFromContent } from "../lib/surpriseConfig";
+import RomanticTemplate from "../templates/RomanticTemplate";
+import EmotionalTemplate from "../templates/EmotionalTemplate";
+import FunnyTemplate from "../templates/FunnyTemplate";
+import RoyalTemplate from "../templates/RoyalTemplate";
+import MinimalTemplate from "../templates/MinimalTemplate";
+import PastelTemplate from "../templates/PastelTemplate";
 
 type ConfettiParticle = {
   x: number;
@@ -784,3 +784,4 @@ export default function WebsiteView() {
     </div>
   );
 }
+

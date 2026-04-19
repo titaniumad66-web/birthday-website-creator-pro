@@ -6,8 +6,8 @@ import {
   Music, Heart, Gift, Crown, Smile, Cloud, Download, Lock, MapPin, Play, Calendar, Star
 } from "lucide-react";
 import { useLocation } from "wouter";
-import { apiUrl } from "@/lib/api";
-import { getValidAuthToken, getAuthPayload } from "@/lib/queryClient";
+import { apiUrl } from "../lib/api";
+import { getValidAuthToken, getAuthPayload } from "../lib/queryClient";
 import {
   memoryTemplates,
   musicTrackOptions,
@@ -17,18 +17,18 @@ import {
   getLetterPlaceholder,
   type MusicTrackId,
   type ExperienceType,
-} from "@/lib/surpriseConfig";
+} from "../lib/surpriseConfig";
 
 // Components
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
+import { Input } from "../components/ui/input";
+import { Textarea } from "../components/ui/textarea";
+import { Switch } from "../components/ui/switch";
+import { Label } from "../components/ui/label";
 
 // Images
-import mockupImg from "@/assets/images/website-mockup.png";
-import gift1 from "@/assets/images/gift-1.png";
-import gift2 from "@/assets/images/gift-2.png";
+import mockupImg from "../assets/images/website-mockup.png";
+import gift1 from "../assets/images/gift-1.png";
+import gift2 from "../assets/images/gift-2.png";
 
 type Step =
   | "welcome"
@@ -1914,3 +1914,4 @@ export default function CreateWebsite() {
     </div>
   );
 }
+

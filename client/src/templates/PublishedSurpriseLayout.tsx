@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { ReactNode, Ref } from "react";
-import MemoryTimeline from "@/components/surprise/MemoryTimeline";
-import { resolveBackendMediaUrl } from "@/lib/api";
+import MemoryTimeline from "../components/surprise/MemoryTimeline";
+import { resolveBackendMediaUrl } from "../lib/api";
 import {
   getPublishedTheme,
   memoryChapterHeading,
@@ -318,3 +318,4 @@ export default function PublishedSurpriseLayout({
     </div>
   );
 }
+

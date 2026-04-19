@@ -8,7 +8,7 @@ import {
   ImageIcon,
   Type,
 } from "lucide-react";
-import type { CreationKind } from "@/lib/dashboardUtils";
+import type { CreationKind } from "../../lib/dashboardUtils";
 
 export type DashboardCardItem = {
   id: string;
@@ -130,3 +130,4 @@ export default function DashboardCard({
     </motion.article>
   );
 }
+

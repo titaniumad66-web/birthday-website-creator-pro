@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { apiUrl } from "@/lib/api";
-import { getValidAuthToken } from "@/lib/queryClient";
+import { apiUrl } from "../lib/api";
+import { getValidAuthToken } from "../lib/queryClient";
 import { QRCodeCanvas } from "qrcode.react";
 
 type Info = {
@@ -136,3 +136,4 @@ export default function Payment() {
     </div>
   );
 }
+

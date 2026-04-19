@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
-import IntroAnimation from "@/components/IntroAnimation";
-import HeroSection from "@/components/HeroSection";
-import { consumeHomeScrollAnchor } from "@/lib/homeAnchorScroll";
-import StoryboardSection from "@/components/StoryboardSection";
-import GiftRevealSection from "@/components/GiftRevealSection";
-import FeaturesSection from "@/components/FeaturesSection";
-import TemplateShowcase from "@/components/TemplateShowcase";
-import CallToActionSection from "@/components/CallToActionSection";
-import FooterSection from "@/components/FooterSection";
-import LandingAmbient from "@/components/landing/LandingAmbient";
-import MotionSection from "@/components/landing/MotionSection";
+import IntroAnimation from "../components/IntroAnimation";
+import HeroSection from "../components/HeroSection";
+import { consumeHomeScrollAnchor } from "../lib/homeAnchorScroll";
+import StoryboardSection from "../components/StoryboardSection";
+import GiftRevealSection from "../components/GiftRevealSection";
+import FeaturesSection from "../components/FeaturesSection";
+import TemplateShowcase from "../components/TemplateShowcase";
+import CallToActionSection from "../components/CallToActionSection";
+import FooterSection from "../components/FooterSection";
+import LandingAmbient from "../components/landing/LandingAmbient";
+import MotionSection from "../components/landing/MotionSection";
 
 export default function Home() {
   const [showIntro, setShowIntro] = useState(() => {
@@ -67,3 +67,4 @@ export default function Home() {
     </div>
   );
 }
+

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { apiUrl, resolveBackendMediaUrl } from "@/lib/api";
-import { getValidAuthToken } from "@/lib/queryClient";
+import { apiUrl, resolveBackendMediaUrl } from "../lib/api";
+import { getValidAuthToken } from "../lib/queryClient";
 import { Download, Upload, RefreshCw, Trash2, Image as ImageIcon } from "lucide-react";
 
 type TemplateItem = {
@@ -824,3 +824,4 @@ export default function AdminDashboard() {
     </div>
   );
 }
+

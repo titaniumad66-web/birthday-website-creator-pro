@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Lock, Sparkles } from "lucide-react";
-import { apiUrl } from "@/lib/api";
-import { getValidAuthToken } from "@/lib/queryClient";
+import { apiUrl } from "../../lib/api";
+import { getValidAuthToken } from "../../lib/queryClient";
 
 type CountdownLockProps = {
   websiteId: string;
@@ -148,3 +148,4 @@ export default function CountdownLock({
     </motion.div>
   );
 }
+

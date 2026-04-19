@@ -1,7 +1,7 @@
 import { memo, useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { clearAuthToken, getAuthPayload } from "@/lib/queryClient";
-import { requestHomeScrollTo } from "@/lib/homeAnchorScroll";
+import { clearAuthToken, getAuthPayload } from "../../lib/queryClient";
+import { requestHomeScrollTo } from "../../lib/homeAnchorScroll";
 import { Menu } from "lucide-react";
 
 function NavbarComponent() {
@@ -279,3 +279,4 @@ function NavbarComponent() {
 }
 
 export const Navbar = memo(NavbarComponent);
+

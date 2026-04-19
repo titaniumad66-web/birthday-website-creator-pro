@@ -1,5 +1,5 @@
 import { motion, useReducedMotion, type HTMLMotionProps } from "framer-motion";
-import { cn } from "@/lib/utils";
+import { cn } from "../../lib/utils";
 
 type MotionSectionProps = Omit<HTMLMotionProps<"div">, "initial" | "whileInView"> & {
   children: React.ReactNode;
@@ -36,3 +36,4 @@ export default function MotionSection({
   }
   return <motion.section {...motionProps}>{children}</motion.section>;
 }
+

@@ -1,4 +1,4 @@
-import { apiUrl, resolveBackendMediaUrl } from "@/lib/api";
+import { apiUrl, resolveBackendMediaUrl } from "../lib/api";
 import { useEffect, useState } from "react";
 import { Download } from "lucide-react";
 
@@ -87,3 +87,4 @@ export default function AllTemplates() {
     </div>
   );
 }
+
