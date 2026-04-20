@@ -3,7 +3,7 @@ import { type Server } from "http";
 import { storage } from "./storage";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import { insertUserSchema } from "@shared/schema";
+import { insertUserSchema } from "../shared/schema";
 import multer from "multer";
 import path from "path";
 import fs from "fs";

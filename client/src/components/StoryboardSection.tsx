@@ -1,10 +1,10 @@
 import React, { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 
-import image1 from "../assets/images/story/image 1.jpg";
-import image2 from "../assets/images/story/image 2.jpg";
-import image3 from "../assets/images/story/image 3.jpg";
-import image4 from "../assets/images/story/image 4.jpg";
+import image1 from "../assets/images/story/image-1.jpg";
+import image2 from "../assets/images/story/image-2.jpg";
+import image3 from "../assets/images/story/image-3.jpg";
+import image4 from "../assets/images/story/image-4.jpg";
 
 declare global {
   interface Window {

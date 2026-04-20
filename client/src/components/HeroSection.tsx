@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import { ArrowRight, PlayCircle } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import SmoothButton from "./ui/SmoothButton";
-import previewPlaceholder from "../assets/images/story/image 1.jpg";
+import previewPlaceholder from "../assets/images/story/image-1.jpg";
 
 declare global {
   interface Window {

@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { ensureWebsiteUnlockColumns, isMissingWebsiteColumnError } from "./ensureDbSchema";
-import { templates, users, websites, siteImages, purchases, pricing } from "@shared/schema";
+import { templates, users, websites, siteImages, purchases, pricing } from "../shared/schema";
 import { desc, eq, and, count, sql } from "drizzle-orm";
 import {
   type User,
@@ -13,7 +13,7 @@ import {
   type InsertPurchase,
   type Pricing,
   type InsertPricing,
-} from "@shared/schema";
+} from "../shared/schema";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;

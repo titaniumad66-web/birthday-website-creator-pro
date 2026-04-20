@@ -1,6 +1,6 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
-import * as schema from "@shared/schema";
+import * as schema from "../shared/schema";
 
 const { Pool } = pg;
 
@@ -19,7 +19,7 @@ pool.on("connect", () => {
   console.log("Connected to Neon PostgreSQL database");
 });
 
-pool.on("error", (error) => {
+pool.on("error", (error: unknown) => {
   console.error("Database connection error:", error);
 });
 
